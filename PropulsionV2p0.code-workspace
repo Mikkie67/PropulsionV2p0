@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../SH-ESP32-onewire-temperature-main"
+		}
+	],
+	"settings": {}
+}
