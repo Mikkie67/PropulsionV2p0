@@ -8,6 +8,10 @@
 // Remove the parts that are not relevant to you, and add your own code
 // for external hardware libraries.
 
+
+//#define SERIAL_DEBUG_DISABLED
+//#define OTA_ENABLED
+
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/sensors/sensor.h"
@@ -30,13 +34,31 @@ double engineroom_temperature = -128;
 double coolant_temperature = -128;
 
 reactesp::ReactESP app;
+// ----------------------------------------------------------
+// Interrupt service routine
+// ----------------------------------------------------------
+volatile unsigned long lastTime = 0;  // Timestamp of the last pulse, in microseconds
+volatile unsigned long currentTime = 0;  // Timestamp of the current pulse, in microseconds
+volatile float shaftHz = 0;  // RPM value
+volatile float timeDifference = 0;
+ICACHE_RAM_ATTR void isr()
+{
+    currentTime = micros();  // Update currentTime with the current time in microseconds
+    timeDifference = currentTime - lastTime;  // Time between pulses in microseconds
+    shaftHz = (1000000.0 / float(timeDifference));  
+    lastTime = currentTime;  // Update lastTime for the next pulse
+ }
 
 // The setup function performs one-time application initialization.
 void setup() {
 #ifndef SERIAL_DEBUG_DISABLED
   SetupSerialDebug(115200);
 #endif
+  const uint8_t kRpmProxyInputPin = 23;
 
+//  pinMode(kRpmProxyInputPin, INPUT);
+//   attachInterrupt(digitalPinToInterrupt(kRpmProxyInputPin), isr, RISING);
+  
   // Construct the global SensESPApp() object
   SensESPAppBuilder builder;
   sensesp_app = (&builder)
@@ -46,7 +68,9 @@ void setup() {
                     // settings. This is normally not needed.
                     //->set_wifi("My WiFi SSID", "my_wifi_password")
                     //->set_sk_server("192.168.10.3", 80)
+                    #ifdef OTA_ENABLED
                     ->enable_ota("Regurk67!")
+                    #endif
                     ->get_app();
 
   // GPIO number to use for the analog input
@@ -138,49 +162,53 @@ void setup() {
   // -------------------------------------------------------------
   // SHAFT RPM
   // -------------------------------------------------------------
-  const uint8_t kRpmProxyInputPin = 23;
-  const char* sk_path = "propulsion.main.revolutions";
-  // to count pulses and reports the readings every read_delay ms
-  // (500 in the example). A Frequency
-  // transform takes a number of pulses and converts that into
-  // a frequency. The sample multiplier converts the 97 tooth
-  // tach output into Hz, SK native units.
-  const float multiplier = 1.0 / 1.0;
-  const unsigned int read_delay = 500;
+//   const uint8_t kRpmProxyInputPin = 23;
+//   // to count pulses and reports the readings every read_delay ms
+//   // (500 in the example). A Frequency
+//   // transform takes a number of pulses and converts that into
+//   // a frequency. The sample multiplier converts the 97 tooth
+//   // tach output into Hz, SK native units.
+//   const float multiplier = 1.0 / 1.0;
+//   const unsigned int read_delay = 1000;
 
-  // Wire it all up by connecting the producer directly to the consumer
-  // ESP32 pins are specified as just the X in GPIOX
-  auto* rpm_sensor = new DigitalInputCounter(kRpmProxyInputPin, INPUT_PULLUP,
-                                             RISING, read_delay);
-   auto rpm_sensor_metadata =
-      new SKMetadata("Hz",                            // units
-                     "Propeller Shaft RPM",  // display name
-                     "Propeller Shaft RPM",  // description
-                     "Shaft RPM",                 // short name
-                     10.                             // timeout, in seconds
-      );
-rpm_sensor
-      ->connect_to(new Frequency(
-          multiplier, "/1_sensors/engine_rpm/calibrate"))  // connect the output of sensor
-                                               // to the input of Frequency()
-      ->connect_to(new SKOutputFloat(
-          sk_path, "/1_sensors/engine_rpm/sk",rpm_sensor_metadata));  // connect the output of Frequency()
-                                          // to a Signal K Output as a number
+//   // Wire it all up by connecting the producer directly to the consumer
+//   // ESP32 pins are specified as just the X in GPIOX
+//   auto* rpm_sensor = new DigitalInputCounter(kRpmProxyInputPin, INPUT_PULLUP,
+//                                              RISING, read_delay);
+//    auto* rpm_sensor = new RepeatSensor<float>(100,[](){return (shaftHz);});
+//    const char* sk_path = "propulsion.main.revolutions";
+//    auto rpm_sensor_metadata =
+//       new SKMetadata("Hz",                            // units
+//                      "Propeller Shaft RPM",  // display name
+//                      "Propeller Shaft RPM",  // description
+//                      "Shaft RPM",                 // short name
+//                      10.                             // timeout, in seconds
+//       );
+//       rpm_sensor->connect_to(new SKOutputFloat(sk_path));
+      // = new SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata);
+      //rpm_sensor_sk->connect_to(rpm_sensor);
+// rpm_sensor
+//       ->connect_to(new Frequency(
+//           multiplier, "/1_sensors/engine_rpm/calibrate"))  // connect the output of sensor
+//                                                // to the input of Frequency()
+//       ->connect_to(new SKOutputFloat(
+//           sk_path, "/1_sensors/engine_rpm/sk",rpm_sensor_metadata));  // connect the output of Frequency()
+//                                           // to a Signal K Output as a number
   // Temperature sensors setup
   DallasTemperatureSensors* dts = new DallasTemperatureSensors(ONEWIRE_PIN);
   // connect the 6 sensors, they have configuration data in the WebUI
   auto* temp_sensor_portMotor =
-      new OneWireTemperature(dts, 1000, "/2_oneWire/portMotorTemp");
+      new OneWireTemperature(dts, 2000, "/2_oneWire/portMotorTemp");
   auto* temp_sensor_starboardMotor =
-      new OneWireTemperature(dts, 1000, "/2_oneWire/starboardMotorTemp");
+      new OneWireTemperature(dts, 2000, "/2_oneWire/starboardMotorTemp");
   auto* temp_sensor_portController =
-      new OneWireTemperature(dts, 1000, "/2_oneWire/portControllerTemp");
+      new OneWireTemperature(dts, 2000, "/2_oneWire/portControllerTemp");
   auto* temp_sensor_starboardController =
-      new OneWireTemperature(dts, 1000, "/2_oneWire/starboardControllerTemp");
+      new OneWireTemperature(dts, 2000, "/2_oneWire/starboardControllerTemp");
   auto* temp_sensor_engineRoom =
-      new OneWireTemperature(dts, 1000, "/2_oneWire/EngineRoomTemp");
+      new OneWireTemperature(dts, 2000, "/2_oneWire/EngineRoomTemp");
   auto* temp_sensor_coolant =
-      new OneWireTemperature(dts, 1000, "/2_oneWire/CoolantTemp");
+      new OneWireTemperature(dts, 2000, "/2_oneWire/CoolantTemp");
   // Create the SK metadata for each sensor
   auto temp_sensor_portMotor_metadata =
       new SKMetadata("K",                       // units
@@ -242,4 +270,9 @@ rpm_sensor
   sensesp_app->start();
 }
 
-void loop() { app.tick(); }
+void loop() 
+{ 
+    app.tick(); 
+    //Serial.print(".");
+  
+}
