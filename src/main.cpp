@@ -8,9 +8,8 @@
 // Remove the parts that are not relevant to you, and add your own code
 // for external hardware libraries.
 
-
-//#define SERIAL_DEBUG_DISABLED
-//#define OTA_ENABLED
+// #define SERIAL_DEBUG_DISABLED
+// #define OTA_ENABLED
 
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
@@ -37,164 +36,74 @@ reactesp::ReactESP app;
 // ----------------------------------------------------------
 // Interrupt service routine
 // ----------------------------------------------------------
-volatile unsigned long lastTime = 0;  // Timestamp of the last pulse, in microseconds
-volatile unsigned long currentTime = 0;  // Timestamp of the current pulse, in microseconds
-volatile float shaftHz = 0;  // RPM value
-volatile float timeDifference = 0;
-ICACHE_RAM_ATTR void isr()
-{
-    currentTime = micros();  // Update currentTime with the current time in microseconds
-    timeDifference = currentTime - lastTime;  // Time between pulses in microseconds
-    shaftHz = (1000000.0 / float(timeDifference));  
-    lastTime = currentTime;  // Update lastTime for the next pulse
- }
+// Timestamp of the last pulse, in microseconds
+volatile unsigned long lastTime = 0;
+// Timestamp of the current pulse, in microseconds
+volatile unsigned long currentTime = 0;
+// RPM value
+volatile float shaftHz = 0;
+volatile unsigned long timeDifference = 0;
+volatile bool updateRpm = false;
+ICACHE_RAM_ATTR void isr() {
+  // Update currentTime with the current time in microseconds
+  currentTime = micros();
+  updateRpm = true;
+}
 
+// ----------------------------------------------------------
 // The setup function performs one-time application initialization.
+// ----------------------------------------------------------
 void setup() {
 #ifndef SERIAL_DEBUG_DISABLED
   SetupSerialDebug(115200);
 #endif
-  const uint8_t kRpmProxyInputPin = 23;
 
-//  pinMode(kRpmProxyInputPin, INPUT);
-//   attachInterrupt(digitalPinToInterrupt(kRpmProxyInputPin), isr, RISING);
-  
   // Construct the global SensESPApp() object
   SensESPAppBuilder builder;
   sensesp_app = (&builder)
                     // Set a custom hostname for the app.
-                    ->set_hostname("Kerosheba-Propulsion")
-                    // Optionally, hard-code the WiFi and Signal K server
-                    // settings. This is normally not needed.
-                    //->set_wifi("My WiFi SSID", "my_wifi_password")
-                    //->set_sk_server("192.168.10.3", 80)
-                    #ifdef OTA_ENABLED
+                    ->set_hostname("Kerosheba-Propulsion1")
+// Optionally, hard-code the WiFi and Signal K server
+// settings. This is normally not needed.
+//->set_wifi("My WiFi SSID", "my_wifi_password")
+//->set_sk_server("192.168.10.3", 80)
+#ifdef OTA_ENABLED
                     ->enable_ota("Regurk67!")
-                    #endif
+#endif
                     ->get_app();
 
-  // GPIO number to use for the analog input
-  const uint8_t kAnalogInputPin = 36;
-  // Define how often (in milliseconds) new samples are acquired
-  const unsigned int kAnalogInputReadInterval = 500;
-  // Define the produced value at the maximum input voltage (3.3V).
-  // A value of 3.3 gives output equal to the input voltage.
-  const float kAnalogInputScale = 3.3;
-
-  // Create a new Analog Input Sensor that reads an analog input pin
-  // periodically.
-  auto* analog_input = new AnalogInput(
-      kAnalogInputPin, kAnalogInputReadInterval, "", kAnalogInputScale);
-
-  // Add an observer that prints out the current value of the analog input
-  // every time it changes.
-  analog_input->attach([analog_input]() {
-    debugD("Analog input value: %f", analog_input->get());
-  });
-
-  // Set GPIO pin 15 to output and toggle it every 50 ms
-
+  // Set GPIO pin 22 to output and toggle it every 20 ms
   const uint8_t kDigitalOutputPin = 22;
-  const unsigned int kDigitalOutputInterval =
-      20;  // ridingh edge every 2ms, thus RPM of 500Hz
+  const unsigned int kDigitalOutputInterval = 20;
   pinMode(kDigitalOutputPin, OUTPUT);
   app.onRepeat(kDigitalOutputInterval, [kDigitalOutputPin]() {
     digitalWrite(kDigitalOutputPin, !digitalRead(kDigitalOutputPin));
   });
-
-  // Read GPIO 14 every time it changes
-
-  const uint8_t kDigitalInput1Pin = 14;
-  auto* digital_input1 =
-      new DigitalInputChange(kDigitalInput1Pin, INPUT_PULLUP, CHANGE);
-
-  // Connect the digital input to a lambda consumer that prints out the
-  // value every time it changes.
-
-  // Test this yourself by connecting pin 15 to pin 14 with a jumper wire and
-  // see if the value changes!
-
-  digital_input1->connect_to(new LambdaConsumer<bool>(
-      [](bool input) { debugD("Digital input value changed: %d", input); }));
-
-  // Create another digital input, this time with RepeatSensor. This approach
-  // can be used to connect external sensor library to SensESP!
-
-  const uint8_t kDigitalInput2Pin = 13;
-  const unsigned int kDigitalInput2Interval = 1000;
-
-  // Configure the pin. Replace this with your custom library initialization
-  // code!
-  pinMode(kDigitalInput2Pin, INPUT_PULLUP);
-
-  // Define a new RepeatSensor that reads the pin every 100 ms.
-  // Replace the lambda function internals with the input routine of your custom
-  // library.
-  // Again, test this yourself by connecting pin 15 to pin 13 with a
-  // jumper wire and see if the value changes!
-
-  auto* digital_input2 = new RepeatSensor<bool>(
-      kDigitalInput2Interval,
-      [kDigitalInput2Pin]() { return digitalRead(kDigitalInput2Pin); });
-
-  // Connect the analog input to Signal K output. This will publish the
-  // analog input value to the Signal K server every time it changes.
-  // analog_input->connect_to(new SKOutputFloat(
-  //     "sensors.analog_input.voltage",         // Signal K path
-  //     "/sensors/analog_input/voltage",        // configuration path, used in
-  //     the
-  //                                             // web UI and for storing the
-  //                                             // configuration
-  //     new SKMetadata("V",                     // Define output units
-  //                    "Analog input voltage")  // Value description
-  //     ));
-
-  // // Connect digital input 2 to Signal K output.
-  // digital_input2->connect_to(new SKOutputBool(
-  //     "sensors.digital_input2.value",          // Signal K path
-  //     "/sensors/digital_input2/value",         // configuration path
-  //     new SKMetadata("",                       // No units for boolean values
-  //                    "Digital input 2 value")  // Value description
-  //     ));
 
   // -------------------------------------------------------------
   // KEROSHEBA PROPULSION ITEMS
   // -------------------------------------------------------------
   // SHAFT RPM
   // -------------------------------------------------------------
-//   const uint8_t kRpmProxyInputPin = 23;
-//   // to count pulses and reports the readings every read_delay ms
-//   // (500 in the example). A Frequency
-//   // transform takes a number of pulses and converts that into
-//   // a frequency. The sample multiplier converts the 97 tooth
-//   // tach output into Hz, SK native units.
-//   const float multiplier = 1.0 / 1.0;
-//   const unsigned int read_delay = 1000;
-
-//   // Wire it all up by connecting the producer directly to the consumer
-//   // ESP32 pins are specified as just the X in GPIOX
-//   auto* rpm_sensor = new DigitalInputCounter(kRpmProxyInputPin, INPUT_PULLUP,
-//                                              RISING, read_delay);
-//    auto* rpm_sensor = new RepeatSensor<float>(100,[](){return (shaftHz);});
-//    const char* sk_path = "propulsion.main.revolutions";
-//    auto rpm_sensor_metadata =
-//       new SKMetadata("Hz",                            // units
-//                      "Propeller Shaft RPM",  // display name
-//                      "Propeller Shaft RPM",  // description
-//                      "Shaft RPM",                 // short name
-//                      10.                             // timeout, in seconds
-//       );
-//       rpm_sensor->connect_to(new SKOutputFloat(sk_path));
-      // = new SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata);
-      //rpm_sensor_sk->connect_to(rpm_sensor);
-// rpm_sensor
-//       ->connect_to(new Frequency(
-//           multiplier, "/1_sensors/engine_rpm/calibrate"))  // connect the output of sensor
-//                                                // to the input of Frequency()
-//       ->connect_to(new SKOutputFloat(
-//           sk_path, "/1_sensors/engine_rpm/sk",rpm_sensor_metadata));  // connect the output of Frequency()
-//                                           // to a Signal K Output as a number
+  const uint8_t kRpmProxyInputPin = 23;
+  pinMode(kRpmProxyInputPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(kRpmProxyInputPin), isr, RISING);
+  auto* rpm_sensor = new RepeatSensor<float>(500, []() { return (shaftHz); });
+  const char* sk_path = "propulsion.main.revolutions";
+  auto rpm_sensor_metadata =
+      new SKMetadata("Hz",                   // units
+                     "Propeller Shaft RPM",  // display name
+                     "Propeller Shaft RPM",  // description
+                     "Shaft RPM",            // short name
+                     10.0                    // timeout, in seconds
+                    );
+   rpm_sensor->connect_to(new SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata));
+  // = new
+  // SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata);
+   //rpm_sensor_sk->connect_to(rpm_sensor);
+  // -------------------------------------------------------------
   // Temperature sensors setup
+  // -------------------------------------------------------------
   DallasTemperatureSensors* dts = new DallasTemperatureSensors(ONEWIRE_PIN);
   // connect the 6 sensors, they have configuration data in the WebUI
   auto* temp_sensor_portMotor =
@@ -252,27 +161,42 @@ void setup() {
                      "Coolnt Tmp",           // short name
                      10.                     // timeout, in seconds
       );
-// Connect the SK output paths
-  temp_sensor_portMotor->connect_to(
-      new SKOutput<float>("propulsion.portMotor.temperature","/2_oneWire/portMotorTemp/sk",temp_sensor_portMotor_metadata));
-  temp_sensor_starboardMotor->connect_to(
-      new SKOutput<float>("propulsion.starboardMotor.temperature","/2_oneWire/starboardMotorTemp/sk",temp_sensor_starboardMotor_metadata));
-  temp_sensor_portController->connect_to(
-      new SKOutput<float>("propulsion.portController.temperature","/2_oneWire/portControllerTemp/sk",temp_sensor_portController_metadata));
+  // Connect the SK output paths
+  temp_sensor_portMotor->connect_to(new SKOutput<float>(
+      "propulsion.portMotor.temperature", "/2_oneWire/portMotorTemp/sk",
+      temp_sensor_portMotor_metadata));
+  temp_sensor_starboardMotor->connect_to(new SKOutput<float>(
+      "propulsion.starboardMotor.temperature",
+      "/2_oneWire/starboardMotorTemp/sk", temp_sensor_starboardMotor_metadata));
+  temp_sensor_portController->connect_to(new SKOutput<float>(
+      "propulsion.portController.temperature",
+      "/2_oneWire/portControllerTemp/sk", temp_sensor_portController_metadata));
   temp_sensor_starboardController->connect_to(
-      new SKOutput<float>("propulsion.starbaordController.temperature","/2_oneWire/starboardControllerTemp/sk",temp_sensor_starboardController_metadata));
-  temp_sensor_engineRoom->connect_to(
-      new SKOutput<float>("propulsion.engineRoom.temperature","/2_oneWire/EngineRoomTemp/sk",temp_sensor_engineRoom_metadata));
-  temp_sensor_coolant->connect_to(
-      new SKOutput<float>("propulsion.coolant.temperature","/2_oneWire/CoolantTemp/sk",temp_sensor_coolant_metadata));
+      new SKOutput<float>("propulsion.starbaordController.temperature",
+                          "/2_oneWire/starboardControllerTemp/sk",
+                          temp_sensor_starboardController_metadata));
+  temp_sensor_engineRoom->connect_to(new SKOutput<float>(
+      "propulsion.engineRoom.temperature", "/2_oneWire/EngineRoomTemp/sk",
+      temp_sensor_engineRoom_metadata));
+  temp_sensor_coolant->connect_to(new SKOutput<float>(
+      "propulsion.coolant.temperature", "/2_oneWire/CoolantTemp/sk",
+      temp_sensor_coolant_metadata));
 
   // Start networking, SK server connections and other SensESP internals
   sensesp_app->start();
 }
 
-void loop() 
-{ 
-    app.tick(); 
-    //Serial.print(".");
-  
+void loop() {
+  app.tick();
+  if (updateRpm) {
+    // The ISR just save the micros at the occurance of the pulse
+    // This code will check the difference between the previous pulse and the
+    timeDifference = currentTime - lastTime;
+    if (timeDifference > 0) {
+      shaftHz = (1000000.0 / float(timeDifference));
+    }
+    // Update lastTime for the next pulse
+    lastTime = currentTime;
+    updateRpm = false;
+  }
 }
