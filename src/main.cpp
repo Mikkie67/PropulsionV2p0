@@ -172,7 +172,7 @@ void setup() {
       "propulsion.portController.temperature",
       "/2_oneWire/portControllerTemp/sk", temp_sensor_portController_metadata));
   temp_sensor_starboardController->connect_to(
-      new SKOutput<float>("propulsion.starbaordController.temperature",
+      new SKOutput<float>("propulsion.starboardController.temperature",
                           "/2_oneWire/starboardControllerTemp/sk",
                           temp_sensor_starboardController_metadata));
   temp_sensor_engineRoom->connect_to(new SKOutput<float>(
