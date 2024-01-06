@@ -95,7 +95,9 @@ void setup() {
                      "Propeller Shaft RPM",  // display name
                      "Propeller Shaft RPM",  // description
                      "Shaft RPM",            // short name
-                     10.0                    // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
                     );
    rpm_sensor->connect_to(new SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata));
   // = new
@@ -124,42 +126,55 @@ void setup() {
                      "Port Motor Temperature",  // display name
                      "Port Motor Temperature",  // description
                      "Prt Mtr Tmp",             // short name
-                     10.                        // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
       );
   auto temp_sensor_starboardMotor_metadata =
       new SKMetadata("K",                            // units
                      "Starboard Motor Temperature",  // display name
                      "Starboard Motor Temperature",  // description
                      "Sbrd Mtr Tmp",                 // short name
-                     10.                             // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
       );
   auto temp_sensor_portController_metadata =
       new SKMetadata("K",                            // units
                      "Port Controller Temperature",  // display name
                      "Port Controller Temperature",  // description
                      "Prt Cntrl Tmp",                // short name
-                     10.                             // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
       );
   auto temp_sensor_starboardController_metadata =
       new SKMetadata("K",                                 // units
                      "Starboard Controller Temperature",  // display name
                      "Starboard Controller Temperature",  // description
                      "Sbrd Cntrl Tmp",                    // short name
-                     10.                                  // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
       );
   auto temp_sensor_engineRoom_metadata =
       new SKMetadata("K",                       // units
                      "Engineroom Temperature",  // display name
                      "Engineroom Temperature",  // description
                      "Eng Rm Tmp",              // short name
-                     10.                        // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
       );
   auto temp_sensor_coolant_metadata =
       new SKMetadata("K",                    // units
-                     "Coolant Temperature",  // display name
+                     "Coolant Temperatur",  // display name
                      "Coolant Temperature",  // description
                      "Coolnt Tmp",           // short name
-                     10.                     // timeout, in seconds
+                     10.0,                   // timeout, in seconds
+                     "visual",               // alert method (visual or sound)
+                     "visual"                // warn method (visual or sound)
+
       );
   // Connect the SK output paths
   temp_sensor_portMotor->connect_to(new SKOutput<float>(
