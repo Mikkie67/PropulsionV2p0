@@ -12,8 +12,8 @@
 //   "units": "Hz",
 //   "timeout": 1,
 //   "displayScale": {"lower": 0, "upper": 75, "type": "linear"},
-//   "alertMethod": ["visual"],
-//   "warnMethod": ["visual"],
+//   "alertMethod": ["visual"], --> can also be array of two
+//   "warnMethod": ["visual"], --> can also be array of two
 //   "alarmMethod": ["sound", "visual"],
 //   "emergencyMethod": ["sound", "visual"],
 //   "zones": [
@@ -53,10 +53,10 @@ class SKMetadata {
   String description_;
   String short_name_;
   float timeout_;
-  String alertMethod_;
-  String warnMethod_;
-  const std::array<String, 2>& alarmMethod_;
-  const std::array<String, 2>& emergencyMethod_;
+  const std::array<String, 2> alertMethod_;
+  const std::array<String, 2> warnMethod_;
+  const std::array<String, 2> alarmMethod_;
+  const std::array<String, 2> emergencyMethod_;
 
   /**
    * @param units The unit of measurement the value represents. See
@@ -75,10 +75,11 @@ class SKMetadata {
    */
   SKMetadata(
       String units, String display_name = "", String description = "",
-      String short_name = "", float timeout = -1.0, String alertMethod = "",
-      String warnMethod = "",
-      const std::array<String, 2>& alarmMethod = std::array<String, 2>(),
-      const std::array<String, 2>& emergencyMethod = std::array<String, 2>());
+      String short_name = "", float timeout = -1.0, 
+      const std::array<String, 2> alertMethod     = std::array<String, 2>(),
+      const std::array<String, 2> warnMethod      = std::array<String, 2>(),
+      const std::array<String, 2> alarmMethod     = std::array<String, 2>(),
+      const std::array<String, 2> emergencyMethod = std::array<String, 2>());
 
   /// Default constructor creates a blank Metadata structure
   // SKMetadata() : timeout_{-1} {}

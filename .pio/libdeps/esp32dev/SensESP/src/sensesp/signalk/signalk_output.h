@@ -48,7 +48,7 @@ class SKOutput : public SKEmitter, public SymmetricTransform<T> {
   }
 
   virtual String as_signalk() override {
-    DynamicJsonDocument json_doc(1024);
+     DynamicJsonDocument json_doc(1024);
     String json;
     json_doc["path"] = this->get_sk_path();
     json_doc["value"] = ValueProducer<T>::output;

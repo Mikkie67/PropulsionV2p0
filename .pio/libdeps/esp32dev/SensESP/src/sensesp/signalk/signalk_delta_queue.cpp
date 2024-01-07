@@ -104,8 +104,11 @@ void SKDeltaQueue::get_delta(String& output) {
   if (!meta_sent_) {
     doc_size_estimate += JSON_OBJECT_SIZE(1) + get_metadata_size_estimate();
   }
-
+  //IVOR the estiamate seems a bit low for lots of metadata
+  doc_size_estimate = 8192;
   DynamicJsonDocument jsonDoc(doc_size_estimate);
+  Serial.print("-------->void SKDeltaQueue::get_delta(String& output): doc_size_estimate= ");
+  Serial.println(doc_size_estimate);
 
   // JsonObject delta = jsonDoc.as<JsonObject>();
   JsonArray updates = jsonDoc.createNestedArray("updates");
@@ -134,6 +137,7 @@ void SKDeltaQueue::get_delta(String& output) {
 void SKDeltaQueue::add_metadata(JsonArray updates) {
   JsonObject new_entry = updates.createNestedObject();
   JsonArray meta = new_entry.createNestedArray("meta");
+  Serial.println("-------->SKDeltaQueue::add_metadata(JsonArray updates)");
   for (auto const& sk_source : SKEmitter::get_sources()) {
     sk_source->add_metadata(meta);
   }

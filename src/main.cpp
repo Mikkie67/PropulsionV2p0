@@ -24,6 +24,7 @@ using namespace sensesp;
 // 1-Wire data pin on SH-ESP32
 // ESP32 pins are specified as just the X in GPIOX
 #define ONEWIRE_PIN 15
+#define LED_TEST 13
 float KelvinToCelsius(float temp) { return temp - 273.15; }
 double portMotor_temperature = -128;
 double portController_temperature = -128;
@@ -96,8 +97,10 @@ void setup() {
                      "Propeller Shaft RPM",  // description
                      "Shaft RPM",            // short name
                      10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
                     );
    rpm_sensor->connect_to(new SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata));
   // = new
@@ -126,9 +129,11 @@ void setup() {
                      "Port Motor Temperature",  // display name
                      "Port Motor Temperature",  // description
                      "Prt Mtr Tmp",             // short name
-                     10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
+                     10.0,                      // timeout, in seconds
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
       );
   auto temp_sensor_starboardMotor_metadata =
       new SKMetadata("K",                            // units
@@ -136,8 +141,10 @@ void setup() {
                      "Starboard Motor Temperature",  // description
                      "Sbrd Mtr Tmp",                 // short name
                      10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
       );
   auto temp_sensor_portController_metadata =
       new SKMetadata("K",                            // units
@@ -145,8 +152,10 @@ void setup() {
                      "Port Controller Temperature",  // description
                      "Prt Cntrl Tmp",                // short name
                      10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
       );
   auto temp_sensor_starboardController_metadata =
       new SKMetadata("K",                                 // units
@@ -154,8 +163,10 @@ void setup() {
                      "Starboard Controller Temperature",  // description
                      "Sbrd Cntrl Tmp",                    // short name
                      10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
       );
   auto temp_sensor_engineRoom_metadata =
       new SKMetadata("K",                       // units
@@ -163,18 +174,21 @@ void setup() {
                      "Engineroom Temperature",  // description
                      "Eng Rm Tmp",              // short name
                      10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
       );
   auto temp_sensor_coolant_metadata =
       new SKMetadata("K",                    // units
-                     "Coolant Temperatur",  // display name
+                     "Coolant Temperatur",   // display name
                      "Coolant Temperature",  // description
                      "Coolnt Tmp",           // short name
                      10.0,                   // timeout, in seconds
-                     "visual",               // alert method (visual or sound)
-                     "visual"                // warn method (visual or sound)
-
+                     {"visual", "sound"},       // alert method (visual or sound)
+                     {"visual", "sound"},       // warn method (visual or sound)
+                     {"visual", "sound"},       // alarm method (visual or sound)
+                     {"visual", "sound"}        // emergency method (visual or sound)
       );
   // Connect the SK output paths
   temp_sensor_portMotor->connect_to(new SKOutput<float>(
