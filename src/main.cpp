@@ -34,12 +34,12 @@ using namespace sensesp;
 // 1-Wire data pin on SH-ESP32
 // ESP32 pins are specified as just the X in GPIOX
 #define ONEWIRE_PIN 15
-#define COOLANT_FAN_BUTTON 12
-//#define COOLANT_PUMP_BUTTON 12
-//#define AMBIENT_FAN_BUTTON 12
-#define COOLANT_FAN_RELAY 13
-//#define COOLANT_PUMP_RELAY 13
-//#define AMBIENT_FAN_RELAY 13
+#define COOLANT_FAN_BUTTON 13
+#define COOLANT_PUMP_BUTTON 12
+#define AMBIENT_FAN_BUTTON 14
+#define COOLANT_FAN_RELAY 27
+#define COOLANT_PUMP_RELAY 26
+#define AMBIENT_FAN_RELAY 25
 
 float KelvinToCelsius(float temp) { return temp - 273.15; }
 double portMotor_temperature = -128;
@@ -118,26 +118,42 @@ void setup() {
   // configuration to save.
   const char* config_path_button_c = "/button/clicktime";
   const char* config_path_status_light = "/button/statusLight";
-  const char* config_path_sk_output = "/signalk/path";
+  const char* config_path_sk_output_coolant_fan = "/signalk/path/coolant/fan";
+  const char* config_path_sk_output_coolant_pmp = "/signalk/path/coolant/pump";
+  const char* config_path_sk_output_ambient_fan = "/signalk/path/ambient/fan";
   const char* config_path_repeat = "/signalk/repeat";
 
   // Create a digital output that is assumed to be connected to the
   // control channel of a relay or a MOSFET that will control the
   // coolant fan. 
-  pinMode(COOLANT_FAN_RELAY, OUTPUT);
-  auto* coolant_fan_switch = new DigitalOutput(COOLANT_FAN_RELAY);
+  pinMode(COOLANT_FAN_RELAY,  OUTPUT);
+  pinMode(COOLANT_PUMP_RELAY, OUTPUT);
+  pinMode(AMBIENT_FAN_RELAY,  OUTPUT);
+  auto* coolant_fan_switch  = new DigitalOutput(COOLANT_FAN_RELAY);
+  auto* coolant_pump_switch = new DigitalOutput(COOLANT_PUMP_RELAY);
+  auto* ambient_fan_switch  = new DigitalOutput(AMBIENT_FAN_RELAY);
   // Create a switch controller to handle the user press logic and
   // connect it to the load switch...
   SmartSwitchController* coolant_fan_controller = new SmartSwitchController();
+  SmartSwitchController* coolant_pump_controller = new SmartSwitchController();
+  SmartSwitchController* ambient_fan_controller = new SmartSwitchController();
   coolant_fan_controller->connect_to(coolant_fan_switch);
+  coolant_pump_controller->connect_to(coolant_pump_switch);
+  ambient_fan_controller->connect_to(ambient_fan_switch);
   // Connect a physical button that will feed manual click types into the
   // controller.
-  DigitalInputState* coolant_fan_btn =
-      new DigitalInputState(COOLANT_FAN_BUTTON, INPUT_PULLDOWN, 100);
-  PressRepeater* coolant_fan_pr = new PressRepeater();
+  DigitalInputState* coolant_fan_btn  = new DigitalInputState(COOLANT_FAN_BUTTON, INPUT_PULLDOWN, 100);
+  DigitalInputState* coolant_pump_btn = new DigitalInputState(COOLANT_PUMP_BUTTON, INPUT_PULLDOWN, 100);
+  DigitalInputState* ambient_fan_btn  = new DigitalInputState(AMBIENT_FAN_BUTTON, INPUT_PULLDOWN, 100);
+  PressRepeater* coolant_fan_pr  = new PressRepeater();
+  PressRepeater* coolant_pump_pr = new PressRepeater();
+  PressRepeater* ambient_fan_pr  = new PressRepeater();
   coolant_fan_btn->connect_to(coolant_fan_pr);
-  coolant_fan_pr->connect_to(new ClickType(config_path_button_c))
-      ->connect_to(coolant_fan_controller);
+  coolant_pump_btn->connect_to(coolant_pump_pr);
+  ambient_fan_btn->connect_to(ambient_fan_pr);
+  coolant_fan_pr->connect_to(new ClickType(config_path_button_c))->connect_to(coolant_fan_controller);
+  coolant_pump_pr->connect_to(new ClickType(config_path_button_c))->connect_to(coolant_pump_controller);
+  ambient_fan_pr->connect_to(new ClickType(config_path_button_c))->connect_to(ambient_fan_controller);
   // In addition to the manual button "click types", a
   // SmartSwitchController accepts explicit state settings via
   // any boolean producer as well as any "truth" values in human readable
@@ -148,6 +164,12 @@ void setup() {
   // such a request to also control the state of our switch.
    auto* sk_listener_coolant_fan = new StringSKPutRequestListener(sk_path_coolant_fan);
    sk_listener_coolant_fan->connect_to(coolant_fan_controller);
+
+   auto* sk_listener_coolant_pump = new StringSKPutRequestListener(sk_path_coolant_pump);
+   sk_listener_coolant_pump->connect_to(coolant_pump_controller);
+
+   auto* sk_listener_ambient_fan = new StringSKPutRequestListener(sk_path_ambient_fan);
+   sk_listener_ambient_fan->connect_to(ambient_fan_controller);
   // Finally, connect the load switch to an SKOutput so it reports its state
   // to the Signal K server.  Since the load switch only reports its state
   // whenever it changes (and switches like light switches change infrequently),
@@ -157,8 +179,15 @@ void setup() {
   // lets the server know the switch is still alive.
   coolant_fan_switch
       ->connect_to(new RepeatReport<bool>(10000, config_path_repeat))
-      ->connect_to(
-          new SKOutputBool(sk_path_coolant_fan, config_path_sk_output));
+      ->connect_to(new SKOutputBool(sk_path_coolant_fan, config_path_sk_output_coolant_fan));
+  
+  coolant_pump_switch
+      ->connect_to(new RepeatReport<bool>(10000, config_path_repeat))
+      ->connect_to(new SKOutputBool(sk_path_coolant_pump, config_path_sk_output_coolant_pmp));
+  
+  ambient_fan_switch
+      ->connect_to(new RepeatReport<bool>(10000, config_path_repeat))
+      ->connect_to(new SKOutputBool(sk_path_ambient_fan, config_path_sk_output_ambient_fan));
   // -------------------------------------------------------------
   // SHAFT RPM
   // -------------------------------------------------------------
