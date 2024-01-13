@@ -29,7 +29,19 @@
 // alertMethod as simple strings
 
 namespace sensesp {
+typedef struct{
+  int    lowerDisplayScale = 0;
+  int    upperDisplayScale = 75;
+  String typeDisplayScale = "linear";
+  } sDisplayScale_t;
 
+//{"lower": 60, "upper": 65, "state": "warn", "message": "Approaching maximum"},
+typedef struct{
+  int lowerZone = 0;
+  int upperZone = 65;
+  String stateZone = "";
+  String messageZone = "";
+} sZone_t;
 /**
  * @brief Holds Signal K meta data that is associated with
  * the sk_path an SKEmitter class may optionally send to the server.
@@ -53,10 +65,12 @@ class SKMetadata {
   String description_;
   String short_name_;
   float timeout_;
+  sDisplayScale_t sDisplayScale_;
   const std::array<String, 2> alertMethod_;
   const std::array<String, 2> warnMethod_;
   const std::array<String, 2> alarmMethod_;
   const std::array<String, 2> emergencyMethod_;
+  const std::array<sZone_t, 4> zones_;
 
   /**
    * @param units The unit of measurement the value represents. See
@@ -75,11 +89,13 @@ class SKMetadata {
    */
   SKMetadata(
       String units, String display_name = "", String description = "",
-      String short_name = "", float timeout = -1.0, 
+      String short_name = "", float timeout = -1.0,
+      sDisplayScale_t sDisplayScale = sDisplayScale_t(),
       const std::array<String, 2> alertMethod     = std::array<String, 2>(),
       const std::array<String, 2> warnMethod      = std::array<String, 2>(),
       const std::array<String, 2> alarmMethod     = std::array<String, 2>(),
-      const std::array<String, 2> emergencyMethod = std::array<String, 2>());
+      const std::array<String, 2> emergencyMethod = std::array<String, 2>(),
+      const std::array<sZone_t, 4> zones = std::array<sZone_t,4>());
 
   /// Default constructor creates a blank Metadata structure
   // SKMetadata() : timeout_{-1} {}

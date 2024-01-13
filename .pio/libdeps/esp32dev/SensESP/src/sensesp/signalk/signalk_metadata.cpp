@@ -4,19 +4,23 @@ namespace sensesp {
 
 SKMetadata::SKMetadata(String units, String display_name, String description,
                        String short_name, float timeout,
+                       sDisplayScale_t sDisplayScale,
                        const std::array<String, 2> alertMethod,
                        const std::array<String, 2> warnMethod,
                        const std::array<String, 2> alarmMethod,
-                       const std::array<String, 2> emergencyMethod)
+                       const std::array<String, 2> emergencyMethod,
+                       const std::array<sZone_t, 4> zones)
     : units_{units},
       display_name_{display_name},
       description_{description},
       short_name_{short_name},
       timeout_{timeout},
+      sDisplayScale_{sDisplayScale},
       alertMethod_{alertMethod},
       warnMethod_{warnMethod},
       alarmMethod_{alarmMethod},
-      emergencyMethod_{emergencyMethod} {}
+      emergencyMethod_{emergencyMethod},
+      zones_{zones} {}
 
 void SKMetadata::add_entry(String sk_path, JsonArray& meta) {
   JsonObject json = meta.createNestedObject();
@@ -41,6 +45,14 @@ void SKMetadata::add_entry(String sk_path, JsonArray& meta) {
 
   if (this->timeout_ >= 0.0) {
     val["timeout"] = this->timeout_;
+  }
+  // Display scale meta
+  if (!this->sDisplayScale_.typeDisplayScale.isEmpty())
+  {
+    JsonObject displayscaleobj = val.createNestedObject("displayScale");
+    displayscaleobj["lower"] = this->sDisplayScale_.lowerDisplayScale;
+    displayscaleobj["upper"] = this->sDisplayScale_.upperDisplayScale;
+    displayscaleobj["type"]  = this->sDisplayScale_.typeDisplayScale;
   }
   // the rules:
   // 1. if both are empty, do nothing
@@ -86,6 +98,12 @@ void SKMetadata::add_entry(String sk_path, JsonArray& meta) {
   } else if (!this->emergencyMethod_[1].isEmpty()) {
     val["emergencyMethod"] = this->emergencyMethod_[1];
   }
+  // JsonArray zonesArray = val.createNestedArray("zones");
+  // JsonObject zoneObj = zonesArray.createNestedObject("zones");
+  //   displayscaleobj["lower"] = this->sDisplayScale_.lowerDisplayScale;
+  //   displayscaleobj["upper"] = this->sDisplayScale_.upperDisplayScale;
+  //   displayscaleobj["type"]  = this->sDisplayScale_.typeDisplayScale;
+
 }
 
 }  // namespace sensesp

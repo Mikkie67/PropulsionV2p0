@@ -18,8 +18,8 @@
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/signalk/signalk_listener.h"
 #include "sensesp/signalk/signalk_output.h"
-#include "sensesp/signalk/signalk_value_listener.h"
 #include "sensesp/signalk/signalk_put_request_listener.h"
+#include "sensesp/signalk/signalk_value_listener.h"
 #include "sensesp/system/lambda_consumer.h"
 #include "sensesp/transforms/frequency.h"
 #include "sensesp_app_builder.h"
@@ -103,12 +103,9 @@ void setup() {
   // -------------------------------------------------------------
   // COOLANT FAN, PUMP AND AMBIENT FAN (ENGINE ROOM FAN)
   // -------------------------------------------------------------
-  const char* sk_path_coolant_fan =
-      "propulsion.switches.coolant.fan.state";
-  const char* sk_path_coolant_pump =
-      "propulsion.switches.coolant.pump.state";
-  const char* sk_path_ambient_fan =
-      "propulsion.switches.ambient.fan.state";
+  const char* sk_path_coolant_fan = "propulsion.switches.coolant.fan.state";
+  const char* sk_path_coolant_pump = "propulsion.switches.coolant.pump.state";
+  const char* sk_path_ambient_fan = "propulsion.switches.ambient.fan.state";
   // "Configuration paths" are combined with "/config" to formulate a URL
   // used by the RESTful API for retrieving or setting configuration data.
   // It is ALSO used to specify a path to the SPIFFS file system
@@ -125,13 +122,13 @@ void setup() {
 
   // Create a digital output that is assumed to be connected to the
   // control channel of a relay or a MOSFET that will control the
-  // coolant fan. 
-  pinMode(COOLANT_FAN_RELAY,  OUTPUT);
+  // coolant fan.
+  pinMode(COOLANT_FAN_RELAY, OUTPUT);
   pinMode(COOLANT_PUMP_RELAY, OUTPUT);
-  pinMode(AMBIENT_FAN_RELAY,  OUTPUT);
-  auto* coolant_fan_switch  = new DigitalOutput(COOLANT_FAN_RELAY);
+  pinMode(AMBIENT_FAN_RELAY, OUTPUT);
+  auto* coolant_fan_switch = new DigitalOutput(COOLANT_FAN_RELAY);
   auto* coolant_pump_switch = new DigitalOutput(COOLANT_PUMP_RELAY);
-  auto* ambient_fan_switch  = new DigitalOutput(AMBIENT_FAN_RELAY);
+  auto* ambient_fan_switch = new DigitalOutput(AMBIENT_FAN_RELAY);
   // Create a switch controller to handle the user press logic and
   // connect it to the load switch...
   SmartSwitchController* coolant_fan_controller = new SmartSwitchController();
@@ -142,18 +139,24 @@ void setup() {
   ambient_fan_controller->connect_to(ambient_fan_switch);
   // Connect a physical button that will feed manual click types into the
   // controller.
-  DigitalInputState* coolant_fan_btn  = new DigitalInputState(COOLANT_FAN_BUTTON, INPUT_PULLDOWN, 100);
-  DigitalInputState* coolant_pump_btn = new DigitalInputState(COOLANT_PUMP_BUTTON, INPUT_PULLDOWN, 100);
-  DigitalInputState* ambient_fan_btn  = new DigitalInputState(AMBIENT_FAN_BUTTON, INPUT_PULLDOWN, 100);
-  PressRepeater* coolant_fan_pr  = new PressRepeater();
+  DigitalInputState* coolant_fan_btn =
+      new DigitalInputState(COOLANT_FAN_BUTTON, INPUT_PULLDOWN, 100);
+  DigitalInputState* coolant_pump_btn =
+      new DigitalInputState(COOLANT_PUMP_BUTTON, INPUT_PULLDOWN, 100);
+  DigitalInputState* ambient_fan_btn =
+      new DigitalInputState(AMBIENT_FAN_BUTTON, INPUT_PULLDOWN, 100);
+  PressRepeater* coolant_fan_pr = new PressRepeater();
   PressRepeater* coolant_pump_pr = new PressRepeater();
-  PressRepeater* ambient_fan_pr  = new PressRepeater();
+  PressRepeater* ambient_fan_pr = new PressRepeater();
   coolant_fan_btn->connect_to(coolant_fan_pr);
   coolant_pump_btn->connect_to(coolant_pump_pr);
   ambient_fan_btn->connect_to(ambient_fan_pr);
-  coolant_fan_pr->connect_to(new ClickType(config_path_button_c))->connect_to(coolant_fan_controller);
-  coolant_pump_pr->connect_to(new ClickType(config_path_button_c))->connect_to(coolant_pump_controller);
-  ambient_fan_pr->connect_to(new ClickType(config_path_button_c))->connect_to(ambient_fan_controller);
+  coolant_fan_pr->connect_to(new ClickType(config_path_button_c))
+      ->connect_to(coolant_fan_controller);
+  coolant_pump_pr->connect_to(new ClickType(config_path_button_c))
+      ->connect_to(coolant_pump_controller);
+  ambient_fan_pr->connect_to(new ClickType(config_path_button_c))
+      ->connect_to(ambient_fan_controller);
   // In addition to the manual button "click types", a
   // SmartSwitchController accepts explicit state settings via
   // any boolean producer as well as any "truth" values in human readable
@@ -162,14 +165,17 @@ void setup() {
   // requests made to the Signal K server to set the switch state.
   // This allows any device on the SignalK network that can make
   // such a request to also control the state of our switch.
-   auto* sk_listener_coolant_fan = new StringSKPutRequestListener(sk_path_coolant_fan);
-   sk_listener_coolant_fan->connect_to(coolant_fan_controller);
+  auto* sk_listener_coolant_fan =
+      new StringSKPutRequestListener(sk_path_coolant_fan);
+  sk_listener_coolant_fan->connect_to(coolant_fan_controller);
 
-   auto* sk_listener_coolant_pump = new StringSKPutRequestListener(sk_path_coolant_pump);
-   sk_listener_coolant_pump->connect_to(coolant_pump_controller);
+  auto* sk_listener_coolant_pump =
+      new StringSKPutRequestListener(sk_path_coolant_pump);
+  sk_listener_coolant_pump->connect_to(coolant_pump_controller);
 
-   auto* sk_listener_ambient_fan = new StringSKPutRequestListener(sk_path_ambient_fan);
-   sk_listener_ambient_fan->connect_to(ambient_fan_controller);
+  auto* sk_listener_ambient_fan =
+      new StringSKPutRequestListener(sk_path_ambient_fan);
+  sk_listener_ambient_fan->connect_to(ambient_fan_controller);
   // Finally, connect the load switch to an SKOutput so it reports its state
   // to the Signal K server.  Since the load switch only reports its state
   // whenever it changes (and switches like light switches change infrequently),
@@ -179,39 +185,44 @@ void setup() {
   // lets the server know the switch is still alive.
   coolant_fan_switch
       ->connect_to(new RepeatReport<bool>(10000, config_path_repeat))
-      ->connect_to(new SKOutputBool(sk_path_coolant_fan, config_path_sk_output_coolant_fan));
-  
+      ->connect_to(new SKOutputBool(sk_path_coolant_fan,
+                                    config_path_sk_output_coolant_fan));
+
   coolant_pump_switch
       ->connect_to(new RepeatReport<bool>(10000, config_path_repeat))
-      ->connect_to(new SKOutputBool(sk_path_coolant_pump, config_path_sk_output_coolant_pmp));
-  
+      ->connect_to(new SKOutputBool(sk_path_coolant_pump,
+                                    config_path_sk_output_coolant_pmp));
+
   ambient_fan_switch
       ->connect_to(new RepeatReport<bool>(10000, config_path_repeat))
-      ->connect_to(new SKOutputBool(sk_path_ambient_fan, config_path_sk_output_ambient_fan));
+      ->connect_to(new SKOutputBool(sk_path_ambient_fan,
+                                    config_path_sk_output_ambient_fan));
   // -------------------------------------------------------------
   // SHAFT RPM
   // -------------------------------------------------------------
+  sDisplayScale_t displayScale;
+  displayScale.lowerDisplayScale = -40;
+  displayScale.upperDisplayScale = 120;
+  displayScale.typeDisplayScale = "linear";
   const uint8_t kRpmProxyInputPin = 23;
   pinMode(kRpmProxyInputPin, INPUT);
   attachInterrupt(digitalPinToInterrupt(kRpmProxyInputPin), isr, RISING);
   auto* rpm_sensor = new RepeatSensor<float>(500, []() { return (shaftHz); });
   const char* sk_path = "propulsion.main.revolutions";
-  auto rpm_sensor_metadata =
-      new SKMetadata("Hz",                   // units
-                     "Propeller Shaft RPM",  // display name
-                     "Propeller Shaft RPM",  // description
-                     "Shaft RPM",            // short name
-                     10.0,                   // timeout, in seconds
-                     {"visual", "sound"},    // alert method (visual or sound)
-                     {"visual", "sound"},    // warn method (visual or sound)
-                     {"visual", "sound"},    // alarm method (visual or sound)
-                     {"visual", "sound"}  // emergency method (visual or sound)
-      );
+  auto rpm_sensor_metadata = new SKMetadata(
+      "Hz",                               // units
+      "Propeller Shaft RPM",              // display name
+      "Propeller Shaft RPM",              // description
+      "Shaft RPM",                        // short name
+      10.0,                               // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},  // alert method (visual or sound)
+      {"visual", "sound"},                // warn method (visual or sound)
+      {"visual", "sound"},                // alarm method (visual or sound)
+      {"visual", "sound"}                 // emergency method (visual or sound)
+  );
   rpm_sensor->connect_to(new SKOutput<float>(
       sk_path, "/1_sensors/engine_rpm/sk", rpm_sensor_metadata));
-  // = new
-  // SKOutput<float>(sk_path,"/1_sensors/engine_rpm/sk",rpm_sensor_metadata);
-  // rpm_sensor_sk->connect_to(rpm_sensor);
   // -------------------------------------------------------------
   // Temperature sensors setup
   // -------------------------------------------------------------
@@ -230,72 +241,78 @@ void setup() {
   auto* temp_sensor_coolant =
       new OneWireTemperature(dts, 2000, "/2_oneWire/CoolantTemp");
   // Create the SK metadata for each sensor
-  auto temp_sensor_portMotor_metadata =
-      new SKMetadata("K",                       // units
-                     "Port Motor Temperature",  // display name
-                     "Port Motor Temperature",  // description
-                     "Prt Mtr Tmp",             // short name
-                     10.0,                      // timeout, in seconds
-                     {"visual", "sound"},  // alert method (visual or sound)
-                     {"visual", "sound"},  // warn method (visual or sound)
-                     {"visual", "sound"},  // alarm method (visual or sound)
-                     {"visual", "sound"}   // emergency method (visual or sound)
-      );
-  auto temp_sensor_starboardMotor_metadata =
-      new SKMetadata("K",                            // units
-                     "Starboard Motor Temperature",  // display name
-                     "Starboard Motor Temperature",  // description
-                     "Sbrd Mtr Tmp",                 // short name
-                     10.0,                           // timeout, in seconds
-                     {"visual", "sound"},  // alert method (visual or sound)
-                     {"visual", "sound"},  // warn method (visual or sound)
-                     {"visual", "sound"},  // alarm method (visual or sound)
-                     {"visual", "sound"}   // emergency method (visual or sound)
-      );
-  auto temp_sensor_portController_metadata =
-      new SKMetadata("K",                            // units
-                     "Port Controller Temperature",  // display name
-                     "Port Controller Temperature",  // description
-                     "Prt Cntrl Tmp",                // short name
-                     10.0,                           // timeout, in seconds
-                     {"visual", "sound"},  // alert method (visual or sound)
-                     {"visual", "sound"},  // warn method (visual or sound)
-                     {"visual", "sound"},  // alarm method (visual or sound)
-                     {"visual", "sound"}   // emergency method (visual or sound)
-      );
-  auto temp_sensor_starboardController_metadata =
-      new SKMetadata("K",                                 // units
-                     "Starboard Controller Temperature",  // display name
-                     "Starboard Controller Temperature",  // description
-                     "Sbrd Cntrl Tmp",                    // short name
-                     10.0,                                // timeout, in seconds
-                     {"visual", "sound"},  // alert method (visual or sound)
-                     {"visual", "sound"},  // warn method (visual or sound)
-                     {"visual", "sound"},  // alarm method (visual or sound)
-                     {"visual", "sound"}   // emergency method (visual or sound)
-      );
-  auto temp_sensor_engineRoom_metadata =
-      new SKMetadata("K",                       // units
-                     "Engineroom Temperature",  // display name
-                     "Engineroom Temperature",  // description
-                     "Eng Rm Tmp",              // short name
-                     10.0,                      // timeout, in seconds
-                     {"visual", "sound"},  // alert method (visual or sound)
-                     {"visual", "sound"},  // warn method (visual or sound)
-                     {"visual", "sound"},  // alarm method (visual or sound)
-                     {"visual", "sound"}   // emergency method (visual or sound)
-      );
-  auto temp_sensor_coolant_metadata =
-      new SKMetadata("K",                    // units
-                     "Coolant Temperatur",   // display name
-                     "Coolant Temperature",  // description
-                     "Coolnt Tmp",           // short name
-                     10.0,                   // timeout, in seconds
-                     {"visual", "sound"},    // alert method (visual or sound)
-                     {"visual", "sound"},    // warn method (visual or sound)
-                     {"visual", "sound"},    // alarm method (visual or sound)
-                     {"visual", "sound"}  // emergency method (visual or sound)
-      );
+  auto temp_sensor_portMotor_metadata = new SKMetadata(
+      "K",                                // units
+      "Port Motor Temperature",           // display name
+      "Port Motor Temperature",           // description
+      "Prt Mtr Tmp",                      // short name
+      10.0,                               // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},  // alert method (visual or sound)
+      {"visual", "sound"},                // warn method (visual or sound)
+      {"visual", "sound"},                // alarm method (visual or sound)
+      {"visual", "sound"}                 // emergency method (visual or sound)
+  );
+  auto temp_sensor_starboardMotor_metadata = new SKMetadata(
+      "K",                                // units
+      "Starboard Motor Temperature",      // display name
+      "Starboard Motor Temperature",      // description
+      "Sbrd Mtr Tmp",                     // short name
+      10.0,                               // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},  // alert method (visual or sound)
+      {"visual", "sound"},                // warn method (visual or sound)
+      {"visual", "sound"},                // alarm method (visual or sound)
+      {"visual", "sound"}                 // emergency method (visual or sound)
+  );
+  auto temp_sensor_portController_metadata = new SKMetadata(
+      "K",                                // units
+      "Port Controller Temperature",      // display name
+      "Port Controller Temperature",      // description
+      "Prt Cntrl Tmp",                    // short name
+      10.0,                               // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},  // alert method (visual or sound)
+      {"visual", "sound"},                // warn method (visual or sound)
+      {"visual", "sound"},                // alarm method (visual or sound)
+      {"visual", "sound"}                 // emergency method (visual or sound)
+  );
+  auto temp_sensor_starboardController_metadata = new SKMetadata(
+      "K",                                 // units
+      "Starboard Controller Temperature",  // display name
+      "Starboard Controller Temperature",  // description
+      "Sbrd Cntrl Tmp",                    // short name
+      10.0,                                // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},   // alert method (visual or sound)
+      {"visual", "sound"},                 // warn method (visual or sound)
+      {"visual", "sound"},                 // alarm method (visual or sound)
+      {"visual", "sound"}                  // emergency method (visual or sound)
+  );
+  auto temp_sensor_engineRoom_metadata = new SKMetadata(
+      "K",                                // units
+      "Engineroom Temperature",           // display name
+      "Engineroom Temperature",           // description
+      "Eng Rm Tmp",                       // short name
+      10.0,                               // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},  // alert method (visual or sound)
+      {"visual", "sound"},                // warn method (visual or sound)
+      {"visual", "sound"},                // alarm method (visual or sound)
+      {"visual", "sound"}                 // emergency method (visual or sound)
+  );
+  auto temp_sensor_coolant_metadata = new SKMetadata(
+      "K",                                // units
+      "Coolant Temperatur",               // display name
+      "Coolant Temperature",              // description
+      "Coolnt Tmp",                       // short name
+      10.0,                               // timeout, in seconds
+      displayScale, 
+      {"visual", "sound"},  // alert method (visual or sound)
+      {"visual", "sound"},                // warn method (visual or sound)
+      {"visual", "sound"},                // alarm method (visual or sound)
+      {"visual", "sound"}                 // emergency method (visual or sound)
+  );
   // Connect the SK output paths
   temp_sensor_portMotor->connect_to(new SKOutput<float>(
       "propulsion.portMotor.temperature", "/2_oneWire/portMotorTemp/sk",
