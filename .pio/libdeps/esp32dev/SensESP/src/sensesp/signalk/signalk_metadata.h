@@ -31,14 +31,14 @@
 namespace sensesp {
 typedef struct{
   int    lowerDisplayScale = 0;
-  int    upperDisplayScale = 75;
+  int    upperDisplayScale = 1;
   String typeDisplayScale = "linear";
   } sDisplayScale_t;
 
 //{"lower": 60, "upper": 65, "state": "warn", "message": "Approaching maximum"},
 typedef struct{
   int lowerZone = 0;
-  int upperZone = 65;
+  int upperZone = 1;
   String stateZone = "";
   String messageZone = "";
 } sZone_t;

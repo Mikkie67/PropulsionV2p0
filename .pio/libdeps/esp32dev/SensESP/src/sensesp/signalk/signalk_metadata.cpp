@@ -47,12 +47,11 @@ void SKMetadata::add_entry(String sk_path, JsonArray& meta) {
     val["timeout"] = this->timeout_;
   }
   // Display scale meta
-  if (!this->sDisplayScale_.typeDisplayScale.isEmpty())
-  {
+  if (!this->sDisplayScale_.typeDisplayScale.isEmpty()) {
     JsonObject displayscaleobj = val.createNestedObject("displayScale");
     displayscaleobj["lower"] = this->sDisplayScale_.lowerDisplayScale;
     displayscaleobj["upper"] = this->sDisplayScale_.upperDisplayScale;
-    displayscaleobj["type"]  = this->sDisplayScale_.typeDisplayScale;
+    displayscaleobj["type"] = this->sDisplayScale_.typeDisplayScale;
   }
   // the rules:
   // 1. if both are empty, do nothing
@@ -89,7 +88,8 @@ void SKMetadata::add_entry(String sk_path, JsonArray& meta) {
     val["alarmMethod"] = this->alarmMethod_[1];
   }
 
-  if ((!this->emergencyMethod_[0].isEmpty() && !this->emergencyMethod_[1].isEmpty())) {
+  if ((!this->emergencyMethod_[0].isEmpty() &&
+       !this->emergencyMethod_[1].isEmpty())) {
     JsonArray emergencyMethodArray = val.createNestedArray("emergencyMethod");
     emergencyMethodArray.add(this->emergencyMethod_[0]);
     emergencyMethodArray.add(this->emergencyMethod_[1]);
@@ -98,12 +98,31 @@ void SKMetadata::add_entry(String sk_path, JsonArray& meta) {
   } else if (!this->emergencyMethod_[1].isEmpty()) {
     val["emergencyMethod"] = this->emergencyMethod_[1];
   }
-  // JsonArray zonesArray = val.createNestedArray("zones");
-  // JsonObject zoneObj = zonesArray.createNestedObject("zones");
-  //   displayscaleobj["lower"] = this->sDisplayScale_.lowerDisplayScale;
-  //   displayscaleobj["upper"] = this->sDisplayScale_.upperDisplayScale;
-  //   displayscaleobj["type"]  = this->sDisplayScale_.typeDisplayScale;
+  // The assumption is that if both state and message is empty
+  // for each of the entries in the zones array, there is no info
+  // and the zones field will not be added
 
+  bool foundZoneInfo = false;
+  JsonArray zonesArray;
+  for (int i = 0; i < 4; i++) {
+    if (!this->zones_.at(i).stateZone.isEmpty() ||
+        !this->zones_.at(i).messageZone.isEmpty()) {
+      if (foundZoneInfo == false) {
+        zonesArray = val.createNestedArray("zones");
+        foundZoneInfo = true;
+      }
+      JsonObject zone = zonesArray.createNestedObject();
+
+      //JsonObject zone;
+      zone["lower"] = this->zones_.at(i).lowerZone;
+      zone["upper"] = this->zones_.at(i).upperZone;
+      zone["state"] = this->zones_.at(i).stateZone;
+      zone["message"] = this->zones_.at(i).messageZone;
+      //zonesArray.add(zone);
+    }
+  }
 }
+
+
 
 }  // namespace sensesp
