@@ -21,6 +21,8 @@ jobs:
           - examples/repeat_sensor_analog_input.cpp
           - examples/freertos_tasks.cpp
           - examples/raw_json.cpp
+          - examples/constant_sensor.cpp
+          - examples/time_counter.cpp
         target_device:
           - esp32dev
     steps:

@@ -3,45 +3,8 @@
 
 #include <ArduinoJson.h>
 
-// The FULL meta dat aexample from documentation is shown below:
-// {
-//   "displayName": "Port Tachometer",
-//   "longName": "Engine 2 Tachometer",
-//   "shortName": "Tacho",
-//   "description": "Engine revolutions (x60 for RPM)",
-//   "units": "Hz",
-//   "timeout": 1,
-//   "displayScale": {"lower": 0, "upper": 75, "type": "linear"},
-//   "alertMethod": ["visual"], --> can also be array of two
-//   "warnMethod": ["visual"], --> can also be array of two
-//   "alarmMethod": ["sound", "visual"],
-//   "emergencyMethod": ["sound", "visual"],
-//   "zones": [
-//     {"upper": 4, "state": "alarm", "message": "Stopped or very slow"},
-//     {"lower": 4, "upper": 60, "state": "normal"},
-//     {"lower": 60, "upper": 65, "state": "warn", "message": "Approaching
-//     maximum"},
-//     {"lower": 65, "state": "alarm", "message": "Exceeding maximum"}
-//   ]
-// }
-// Currently, only the first 6 pieces are used. This class will now be
-// overloaded to perform the rest First I will only do the easy ones for
-// alertMethod as simple strings
-
 namespace sensesp {
-typedef struct{
-  int    lowerDisplayScale = 0;
-  int    upperDisplayScale = 1;
-  String typeDisplayScale = "linear";
-  } sDisplayScale_t;
 
-//{"lower": 60, "upper": 65, "state": "warn", "message": "Approaching maximum"},
-typedef struct{
-  int lowerZone = 0;
-  int upperZone = 1;
-  String stateZone = "";
-  String messageZone = "";
-} sZone_t;
 /**
  * @brief Holds Signal K meta data that is associated with
  * the sk_path an SKEmitter class may optionally send to the server.
@@ -65,12 +28,6 @@ class SKMetadata {
   String description_;
   String short_name_;
   float timeout_;
-  sDisplayScale_t sDisplayScale_;
-  const std::array<String, 2> alertMethod_;
-  const std::array<String, 2> warnMethod_;
-  const std::array<String, 2> alarmMethod_;
-  const std::array<String, 2> emergencyMethod_;
-  const std::array<sZone_t, 4> zones_;
 
   /**
    * @param units The unit of measurement the value represents. See
@@ -87,18 +44,11 @@ class SKMetadata {
    * valid. This value is specified in seconds. Specify -1.0 if you do not
    * want to specify a timeout.
    */
-  SKMetadata(
-      String units, String display_name = "", String description = "",
-      String short_name = "", float timeout = -1.0,
-      sDisplayScale_t sDisplayScale = sDisplayScale_t(),
-      const std::array<String, 2> alertMethod     = std::array<String, 2>(),
-      const std::array<String, 2> warnMethod      = std::array<String, 2>(),
-      const std::array<String, 2> alarmMethod     = std::array<String, 2>(),
-      const std::array<String, 2> emergencyMethod = std::array<String, 2>(),
-      const std::array<sZone_t, 4> zones = std::array<sZone_t,4>());
+  SKMetadata(String units, String display_name = "", String description = "",
+             String short_name = "", float timeout = -1.0);
 
   /// Default constructor creates a blank Metadata structure
-  // SKMetadata() : timeout_{-1} {}
+  SKMetadata() : timeout_{-1} {}
 
   /**
    * Adds an entry to the specified meta array that represents this metadata

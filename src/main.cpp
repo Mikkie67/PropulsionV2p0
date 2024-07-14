@@ -1,16 +1,13 @@
-// Signal K application template file.
-//
-// This application demonstrates core SensESP concepts in a very
-// concise manner. You can build and upload the application as is
-// and observe the value changes on the serial port monitor.
-//
-// You can use this source file as a basis for your own projects.
-// Remove the parts that are not relevant to you, and add your own code
-// for external hardware libraries.
+// Kerosheba Propulsion boat controller (VCU)
 
 // #define SERIAL_DEBUG_DISABLED
 // #define OTA_ENABLED
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Arduino.h>
 
+#include "ESP32-TWAI-CAN.hpp"
+#include "rpm_class.hpp"
 #include "sensesp/controllers/smart_switch_controller.h"
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
@@ -21,27 +18,74 @@
 #include "sensesp/signalk/signalk_put_request_listener.h"
 #include "sensesp/signalk/signalk_value_listener.h"
 #include "sensesp/system/lambda_consumer.h"
-#include "sensesp/transforms/frequency.h"
-#include "sensesp_app_builder.h"
-#include "sensesp_onewire/onewire_temperature.h"
-// for physical button
-#include "rpm_class.hpp"
 #include "sensesp/transforms/click_type.h"
 #include "sensesp/transforms/debounce.h"
+#include "sensesp/transforms/frequency.h"
 #include "sensesp/transforms/press_repeater.h"
 #include "sensesp/transforms/repeat_report.h"
+#include "sensesp_app_builder.h"
+#include "sensesp_onewire/onewire_temperature.h"
 
 using namespace sensesp;
-// 1-Wire data pin on SH-ESP32
-// ESP32 pins are specified as just the X in GPIOX
+// IOs on ESP32 DEVKIT
+// D13
+// D12
+// D14
+// D27  SDA_PIN
+// D26  SCL_PIN
+// D25
+// D33
+// D32  COOLANT_FAN_RELAY
+// D35  COOLANT_PUMP_RELAY
+// D34  AMBIENT_FAN_RELAY
+// --Other side--
+// D15  ONEWIRE_PIN
+// D2
+// D4   CAN_TX
+// RX2
+// TX2
+// D5   CAN_RX
+// D18  COOLANT_FAN_BUTTON
+// D19  COOLANT_PUMP_BUTTON
+// D21  AMBIENT_FAN_BUTTON
+// RXD
+// TXD
+// D22  CAN_CLK
+// D23  CAN_BUS_OFF
+// DISPLAY defines
+#define SDA_PIN 27
+#define SCL_PIN 26
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
+// 1-Wire data pin
 #define ONEWIRE_PIN 15
-#define COOLANT_FAN_BUTTON 13
-#define COOLANT_PUMP_BUTTON 12
-#define AMBIENT_FAN_BUTTON 14
-#define COOLANT_FAN_RELAY 27
-#define COOLANT_PUMP_RELAY 26
-#define AMBIENT_FAN_RELAY 25
-
+// Button inputs to manually control fans and pumps
+#define COOLANT_FAN_BUTTON 18
+#define COOLANT_PUMP_BUTTON 19
+#define AMBIENT_FAN_BUTTON 21
+// Outputs to control relays for fans and pumps
+#define COOLANT_FAN_RELAY 32
+#define COOLANT_PUMP_RELAY 33
+#define AMBIENT_FAN_RELAY 34
+// CAN defines
+#define CAN_TX 4
+#define CAN_RX 5
+#define CAN_CLK 22
+#define CAN_BUS_OFF 23
+typedef enum {
+  STATE_CLOSED = 0,
+  STATE_CONNECTED = 1,
+  STATE_SYNCED = 2,
+  STATE_MSG1 = 3,
+  STATE_MSG2 = 4,
+  STATE_LAST = 5
+} eCanFsmState_t;
+char State[6][8] = {"CLOSED\0", "OPEN\0",   "SYNCED\0",
+                    "MSG1  \0", "MSG2  \0", "LAST  \0"};
+eCanFsmState_t sCurrentCan0State = STATE_CLOSED;
+uint32_t CanRxMsg = 0;
+uint32_t CanTxMsg = 0;
+// Temp defines
 float KelvinToCelsius(float temp) { return temp - 273.15; }
 double portMotor_temperature = -128;
 double portController_temperature = -128;
@@ -51,6 +95,10 @@ double engineroom_temperature = -128;
 double coolant_temperature = -128;
 ShaftFrequency clShaftFreq(0, 0.05);
 reactesp::ReactESP app;
+CanFrame rxFrame;
+TwoWire *i2c;
+Adafruit_SSD1306 *display;
+CanFrame txFrame;
 // ----------------------------------------------------------
 // Interrupt service routine
 // ----------------------------------------------------------
@@ -66,6 +114,57 @@ ICACHE_RAM_ATTR void isr() {
   lastTime = micros();
   updateRpm = true;
 }
+
+// ----------------------------------------------------------
+// CAN SYNC REPLY
+// ----------------------------------------------------------
+uint8_t LifeSignal = 0;
+uint8_t GetSA(CanFrame aCanFrame) {
+  uint32_t lID = aCanFrame.identifier;
+  return (uint8_t)lID;
+}
+uint8_t GetPS1(CanFrame aCanFrame) {
+  uint32_t lID = aCanFrame.identifier & 0x0000FF00;
+  return (uint8_t)lID >> 8;
+}
+uint8_t GetPF1(CanFrame aCanFrame) {
+  uint32_t lID = aCanFrame.identifier & 0x00FF0000;
+  return (uint8_t)lID >> 16;
+}
+
+bool CAN_SendSyncReply(uint8_t McuId) {
+  bool bRet = false;
+  CanFrame SyncFrame = {0};
+  SyncFrame.identifier = 0x0C01EFD0;
+  SyncFrame.extd = 1;
+  SyncFrame.data_length_code = 8;
+  SyncFrame.data[0] = 0xAA;
+  SyncFrame.data[1] = 0xAA;
+  SyncFrame.data[2] = 0xAA;
+  SyncFrame.data[3] = 0xAA;
+  SyncFrame.data[4] = 0xAA;
+  SyncFrame.data[5] = 0xAA;
+  SyncFrame.data[6] = 0xAA;
+  SyncFrame.data[7] = 0xAA;
+  bRet = ESP32Can.writeFrame(SyncFrame);  // timeout defaults to 1 ms
+  if (bRet) {
+    CanTxMsg++;
+  }
+  return bRet;
+}
+typedef struct {
+  int16_t BusVoltage;
+  int16_t BusCurrent;
+  int16_t PhaseCurrent;
+  int16_t SpeedRpm;
+  int16_t ControllerTemp;
+  int16_t MotorTemp;
+  int16_t ThrottlePosition;
+  uint8_t Status;
+  uint32_t Error;
+  uint8_t LifeSignal;
+} sMcuData_t;
+sMcuData_t sMcuData;
 // ----------------------------------------------------------
 // The setup function performs one-time application initialization.
 // ----------------------------------------------------------
@@ -73,12 +172,11 @@ void setup() {
 #ifndef SERIAL_DEBUG_DISABLED
   SetupSerialDebug(115200);
 #endif
-
   // Construct the global SensESPApp() object
   SensESPAppBuilder builder;
   sensesp_app = (&builder)
                     // Set a custom hostname for the app.
-                    ->set_hostname("Kerosheba-Propulsion1")
+                    ->set_hostname("Propulsion1")
 // Optionally, hard-code the WiFi and Signal K server
 // settings. This is normally not needed.
 //->set_wifi("My WiFi SSID", "my_wifi_password")
@@ -99,6 +197,95 @@ void setup() {
   // -------------------------------------------------------------
   // KEROSHEBA PROPULSION ITEMS
   // -------------------------------------------------------------
+  // CAN BUS
+  Serial.printf("CAN Init Status %d", ESP32Can.getInit());
+  ESP32Can.setPins(CAN_TX, CAN_RX, CAN_CLK, CAN_BUS_OFF);
+  ESP32Can.setRxQueueSize(8);
+  ESP32Can.setTxQueueSize(8);
+  ESP32Can.setSpeed(ESP32Can.convertSpeed(250));
+  if (ESP32Can.begin()) {
+    Serial.println("CAN bus started!");
+    sCurrentCan0State = STATE_CONNECTED;
+  } else {
+    Serial.println("CAN bus failed!");
+    sCurrentCan0State = STATE_CLOSED;
+  }
+  // // Check the CAN bus receiver every 1ms
+  app.onRepeat(1, []() 
+  {
+    if (ESP32Can.readFrame(&rxFrame, 1000)) 
+    {
+      Serial.printf("Received frame: %08X  \r\n", rxFrame.identifier);
+      // If Frame is from MCU, check if it is Sync Frame, if so, reply
+      // accordingly, otherwise
+      //  check the frame for the information and populate structures from data
+      if (GetSA(rxFrame) == 239)  // TODO change to variable nodeid for two
+                                  // different MCUs (via config page)
+      {
+        Serial.println("CAN frame received");
+        // Check if it is a handshake message
+        if ((rxFrame.data[0] == 0x55) && (rxFrame.data[1] == 0x55) &&
+            (rxFrame.data[2] == 0x55) && (rxFrame.data[3] == 0x55) &&
+            (rxFrame.data[4] == 0x55) && (rxFrame.data[5] == 0x55) &&
+            (rxFrame.data[6] == 0x55) && (rxFrame.data[7] == 0x55)) {
+          CAN_SendSyncReply(239);
+          sCurrentCan0State = STATE_SYNCED;
+        }
+      }
+    } else
+    {
+      // do nothing, frame not meant for this node
+    }
+    // data message from MCU, populate structures
+    // Message I
+    if (GetPF1(rxFrame) == 0x01) {
+      sCurrentCan0State = STATE_MSG1;
+      sMcuData.BusVoltage = (rxFrame.data[0] << 8 + rxFrame.data[1]) * 0.1;
+      sMcuData.BusCurrent = (rxFrame.data[2] << 8 + rxFrame.data[3]) * 0.1;
+      sMcuData.PhaseCurrent = (rxFrame.data[4] << 8 + rxFrame.data[5]) * 0.1;
+      sMcuData.SpeedRpm = (rxFrame.data[6] << 8 + rxFrame.data[7]) * 0.1;
+    }
+    // Message II
+    if (GetPF1(rxFrame) == 0x02) {
+      sCurrentCan0State = STATE_MSG2;
+      sMcuData.ControllerTemp = (rxFrame.data[0]);
+      sMcuData.MotorTemp = (rxFrame.data[1]);
+      sMcuData.ThrottlePosition = (rxFrame.data[2]);
+      sMcuData.Status = (rxFrame.data[3]);
+      sMcuData.Error =
+          (rxFrame.data[4] << 24 + rxFrame.data[5] << 16 + rxFrame.data[6]
+                           << 8 + rxFrame.data[7]) >>
+          4;
+      sMcuData.LifeSignal = (rxFrame.data[7] & 0x0F);
+    }
+});
+//   Send the CAN control command when in a state later than synced
+app.onRepeat(50, []() {
+
+ // if (sCurrentCan0State > STATE_SYNCED) 
+  {
+    int16_t TargetPhaseCurrent = 50;
+    int16_t TargetSpeed = 1000;
+    uint8_t ControlMode = 0x03;  // running in speed control mode
+    CanFrame TxFrame = {0};
+    TxFrame.identifier = 0x0C01EFD0;
+    TxFrame.extd = 1;
+    TxFrame.data_length_code = 8;
+    TxFrame.data[0] = uint8_t(((uint16_t)TargetPhaseCurrent));
+    TxFrame.data[1] = uint8_t(((uint16_t)TargetPhaseCurrent) >> 8);
+    TxFrame.data[2] = uint8_t(((uint16_t)TargetSpeed));
+    TxFrame.data[3] = uint8_t(((uint16_t)TargetSpeed) >> 8);
+    TxFrame.data[4] = ControlMode;
+    TxFrame.data[5] = 0xAA;  // to avoid bit-stuffing
+    TxFrame.data[6] = 0xAA;
+    TxFrame.data[7] = LifeSignal;
+    // Accepts both pointers and references
+    ESP32Can.writeFrame(TxFrame);  // timeout defaults to 1 ms
+    LifeSignal++;
+  }
+});
+
+/*
   // -------------------------------------------------------------
   // COOLANT FAN, PUMP AND AMBIENT FAN (ENGINE ROOM FAN)
   // -------------------------------------------------------------
@@ -180,7 +367,8 @@ void setup() {
   sk_listener_ambient_fan->connect_to(ambient_fan_controller);
   // Finally, connect the load switch to an SKOutput so it reports its state
   // to the Signal K server.  Since the load switch only reports its state
-  // whenever it changes (and switches like light switches change infrequently),
+  // whenever it changes (and switches like light switches change
+  infrequently),
   // send it through a `RepeatReport` transform, which will cause the state
   // to be reported to the server every 10 seconds, regardless of whether
   // or not it has changed.  That keeps the value on the server fresh and
@@ -207,15 +395,18 @@ void setup() {
   displayScale.lowerDisplayScale = 0;
   displayScale.upperDisplayScale = 1500;
   displayScale.typeDisplayScale = "linear";
-  // zones meta information for RPM (hardcoded to 4 but some can be left blank)
+  // zones meta information for RPM (hardcoded to 4 but some can be left
+  blank)
   // nominal   : this is a special type of normal state/zone (see below)
-  // normal    : the normal operating range for the value in question (default)
+  // normal    : the normal operating range for the value in question
+  (default)
   // alert	   : Indicates a safe or normal condition which is brought to
   // the operators attention to impart information for routine action purposes
   // warn	     : Indicates a condition that requires immediate attention
   // but not immediate action alarm	   : Indicates a condition which is
   // outside the specified acceptable range. Immediate action is required to
-  // prevent loss of life or equipment damage emergency : the value indicates a
+  // prevent loss of life or equipment damage emergency : the value indicates
+  a
   // life-threatening condition
   std::array<sZone_t, 4> zonesRpm;
   zonesRpm.at(0).lowerZone = 0;
@@ -245,8 +436,8 @@ void setup() {
                      {"visual", "sound"},    // alert method (visual or sound)
                      {"visual", "sound"},    // warn method (visual or sound)
                      {"visual", "sound"},    // alarm method (visual or sound)
-                     {"visual", "sound"},  // emergency method (visual or sound)
-                     zonesRpm              // zones array of zone structs
+                     {"visual", "sound"},  // emergency method (visual or
+  sound) zonesRpm              // zones array of zone structs
       );
   rpm_sensor->connect_to(new SKOutput<float>(
       sk_path, "/1_sensors/engine_rpm/sk", rpm_sensor_metadata));
@@ -272,8 +463,8 @@ void setup() {
   displayScale.lowerDisplayScale = -40;
   displayScale.upperDisplayScale = 120;
   displayScale.typeDisplayScale = "linear";
-  // zones meta information for Temp (hardcoded to 4 but some can be left  blank) 
-  std::array<sZone_t, 4> zonesTemp; zonesTemp.at(0).lowerZone = -40;
+  // zones meta information for Temp (hardcoded to 4 but some can be left
+  blank) std::array<sZone_t, 4> zonesTemp; zonesTemp.at(0).lowerZone = -40;
   zonesTemp.at(0).upperZone = 60;
   zonesTemp.at(0).stateZone = "nominal";
   zonesTemp.at(0).messageZone = "Normal Temp";
@@ -296,8 +487,8 @@ void setup() {
       {"visual", "sound"},  // alert method (visual or sound)
       {"visual", "sound"},                // warn method (visual or sound)
       {"visual", "sound"},                // alarm method (visual or sound)
-      {"visual", "sound"},                // emergency method (visual or sound) 
-      zonesTemp                           // zones array of zone structs
+      {"visual", "sound"},                // emergency method (visual or
+  sound) zonesTemp                           // zones array of zone structs
   );
   auto temp_sensor_starboardMotor_metadata = new SKMetadata(
       "K",                                // units
@@ -309,8 +500,8 @@ void setup() {
       {"visual", "sound"},  // alert method (visual or sound)
       {"visual", "sound"},                // warn method (visual or sound)
       {"visual", "sound"},                // alarm method (visual or sound)
-      {"visual", "sound"},                // emergency method (visual or sound) 
-      zonesTemp                           // zones array of zone structs
+      {"visual", "sound"},                // emergency method (visual or
+  sound) zonesTemp                           // zones array of zone structs
   );
   auto temp_sensor_portController_metadata = new SKMetadata(
       "K",                                // units
@@ -322,8 +513,8 @@ void setup() {
       {"visual", "sound"},  // alert method (visual or sound)
       {"visual", "sound"},                // warn method (visual or sound)
       {"visual", "sound"},                // alarm method (visual or sound)
-      {"visual", "sound"},                // emergency method (visual or sound) 
-      zonesTemp                           // zones array of zone  structs
+      {"visual", "sound"},                // emergency method (visual or
+  sound) zonesTemp                           // zones array of zone  structs
   );
   auto temp_sensor_starboardController_metadata = new SKMetadata(
       "K",                                 // units
@@ -335,8 +526,8 @@ void setup() {
       {"visual", "sound"},   // alert method (visual or sound)
       {"visual", "sound"},                 // warn method (visual or sound)
       {"visual", "sound"},                 // alarm method (visual or sound)
-      {"visual", "sound"},                 // emergency method (visual or sound) 
-      zonesTemp                            // zones array of zone  structs
+      {"visual", "sound"},                 // emergency method (visual or
+  sound) zonesTemp                            // zones array of zone  structs
   );
   auto temp_sensor_engineRoom_metadata = new SKMetadata(
       "K",                                // units
@@ -348,8 +539,8 @@ void setup() {
       {"visual", "sound"},  // alert method (visual or sound)
       {"visual", "sound"},                // warn method (visual or sound)
       {"visual", "sound"},                // alarm method (visual or sound)
-      {"visual", "sound"},                // emergency method (visual or sound) 
-      zonesTemp                           // zones array of zone  structs
+      {"visual", "sound"},                // emergency method (visual or
+  sound) zonesTemp                           // zones array of zone  structs
   );
   auto temp_sensor_coolant_metadata = new SKMetadata(
       "K",                                // units
@@ -361,8 +552,8 @@ void setup() {
       {"visual", "sound"},  // alert method (visual or sound)
       {"visual", "sound"},                // warn method (visual or sound)
       {"visual", "sound"},                // alarm method (visual or sound)
-      {"visual", "sound"},                // emergency method (visual or  sound) 
-      zonesTemp                           // zones array of zone structs
+      {"visual", "sound"},                // emergency method (visual or
+  sound) zonesTemp                           // zones array of zone structs
   );
   // Connect the SK output paths
   temp_sensor_portMotor->connect_to(new SKOutput<float>(
@@ -389,12 +580,43 @@ void setup() {
 
   // Start networking, SK server connections and other SensESP internals
 
-  app.onRepeat(100, [](){if ((int)shaftHz != (int)clShaftFreq.getCurrentFrequency()){ shaftHz = clShaftFreq.getCurrentFrequency();}});
-  sensesp_app->start();
+  app.onRepeat(100, [](){if ((int)shaftHz !=
+  (int)clShaftFreq.getCurrentFrequency()){ shaftHz =
+  clShaftFreq.getCurrentFrequency();}});
+  */
+// initialize the display
+i2c = new TwoWire(0);
+i2c->begin(SDA_PIN, SCL_PIN);
+display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, i2c, -1);
+if (!display->begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+  Serial.println(F("SSD1306 allocation failed"));
+}
+delay(100);
+display->setRotation(2);
+display->clearDisplay();
+display->display();
+
+// update results
+app.onRepeat(10, []() {
+  display->clearDisplay();
+  display->setTextSize(1);
+  display->setCursor(0, 0);
+  display->setTextColor(SSD1306_WHITE);
+  display->printf("KEROSHEBA MOTOR CNTRL\n");
+  display->printf("CAN: %d Uptime: %d\n", sCurrentCan0State, millis() / 1000);
+  display->printf("RX: %d    TX: %02d: %d\n", CanRxMsg, LifeSignal, CanTxMsg);
+  // display->printf("123456789012345678901\n");
+  display->printf("Bus V  Bus I  Phase I");
+  display->printf("%2.2f %#6d %#7d\n", 54.2, 123, 245);
+  display->printf("Speed RPM: %#5d\n", -2300);
+  display->printf("CT:%#2.1f MT:%#2.1f %#2d\n", -20.1, 23.4, 52);
+  display->display();
+});
+sensesp_app->start();
 }
 void loop() {
   app.tick();
-   if (updateRpm) {
+  if (updateRpm) {
     clShaftFreq.pulseReceived(micros());
     updateRpm = false;
   } else {
