@@ -170,4 +170,3 @@ bool TwaiCAN::end() {
     return ret;
 }
 
-TwaiCAN ESP32Can;
