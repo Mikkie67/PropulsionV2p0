@@ -94,7 +94,7 @@ void ILI9488::spiwrite(uint8_t c) {
     SPCR = backupSPCR;
   #endif
 #else
-    SPI.transfer(c);
+    //IVOR SPI.transfer(c);
 #endif
   } else {
 #if defined(ESP8266_LCD) || defined (ARDUINO_ARCH_ARC32)
