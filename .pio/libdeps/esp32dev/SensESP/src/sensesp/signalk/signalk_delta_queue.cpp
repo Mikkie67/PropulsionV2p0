@@ -104,7 +104,10 @@ void SKDeltaQueue::get_delta(String& output) {
   if (!meta_sent_) {
     doc_size_estimate += JSON_OBJECT_SIZE(1) + get_metadata_size_estimate();
   }
-
+  //IVOR the estimate seems a bit low for lots of metadata
+  // I am not sure what is the best way to correct it, 
+  // so I just put a hardcode in here for my purposes
+  doc_size_estimate = 8192;
   DynamicJsonDocument jsonDoc(doc_size_estimate);
 
   // JsonObject delta = jsonDoc.as<JsonObject>();
