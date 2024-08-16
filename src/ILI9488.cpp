@@ -70,6 +70,11 @@ ILI9488::ILI9488(int8_t cs, int8_t dc, int8_t mosi,
 
 // Constructor when using hardware SPI.  Faster, but must use SPI pins
 // specific to each board type (e.g. 11,13 for Uno, 51,52 for Mega, etc.)
+// For YD-ESP32-23 V1.3 (similar to ESP32-S3-DEVKITC-) the pins are:
+// MOSI: 11
+// MISO: 13
+// SCK: 12
+// SS: 10
 ILI9488::ILI9488(int8_t cs, int8_t dc, int8_t rst) : Adafruit_GFX(ILI9488_TFTWIDTH, ILI9488_TFTHEIGHT) {
   _cs   = cs;
   _dc   = dc;
@@ -94,7 +99,7 @@ void ILI9488::spiwrite(uint8_t c) {
     SPCR = backupSPCR;
   #endif
 #else
-    //IVOR SPI.transfer(c);
+    SPI.transfer(c);
 #endif
   } else {
 #if defined(ESP8266_LCD) || defined (ARDUINO_ARCH_ARC32)
@@ -215,10 +220,18 @@ void ILI9488::begin(void) {
   dcport    = portOutputRegister(digitalPinToPort(_dc));
   dcpinmask = digitalPinToBitMask(_dc);
 #endif
-
+ 
   if(hwSPI) { // Using hardware SPI
-    SPI.begin();
-
+  SPI.begin(0,36,35,7);
+  Serial.print("MOSI: ");
+  Serial.println(MOSI);
+  Serial.print("MISO: ");
+  Serial.println(MISO);
+  Serial.print("SCK: ");
+  Serial.println(SCK);
+  Serial.print("SS: ");
+  Serial.println(SS);  
+ 
 #ifndef SPI_HAS_TRANSACTION
     SPI.setBitOrder(MSBFIRST);
     SPI.setDataMode(SPI_MODE0);

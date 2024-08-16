@@ -36,6 +36,7 @@
 #include "sensesp/transforms/repeat_report.h"
 
 using namespace sensesp;
+void testLcd();
 unsigned long testFillScreen();
 unsigned long testText();
 unsigned long testLines(uint16_t color);
@@ -118,7 +119,7 @@ const byte  LCD_RST    = 5;  // KerProp.LCD_RST
 const byte  LCD_MISO   = 36; // KerProp.LCD_MISO
 const byte  LCD_LED    = 4;  // KerProp.LCD_LED
 SPIClass mySPI(FSPI);
-ILI9488 tft = ILI9488(LCD_CS, LCD_DC, LCD_MOSI, LCD_CLK, LCD_RST, LCD_MISO);
+ILI9488 tft = ILI9488(LCD_CS, LCD_DC, LCD_RST);
 
 
 #define DEBUGGING_ENABLED
@@ -181,14 +182,6 @@ void setup() {
   // app.onRepeat(kDigitalOutputInterval, [kDigitalOutputPin]() {
   //   digitalWrite(kDigitalOutputPin, !digitalRead(kDigitalOutputPin));
   // });
-  Serial.print("MOSI: ");
-  Serial.println(MOSI);
-  Serial.print("MISO: ");
-  Serial.println(MISO);
-  Serial.print("SCK: ");
-  Serial.println(SCK);
-  Serial.print("SS: ");
-  Serial.println(SS);  
 
   // -------------------------------------------------------------
   // KEROSHEBA PROPULSION ITEMS
@@ -212,68 +205,7 @@ void setup() {
   digitalWrite(LCD_LED,1);
   digitalWrite(LCD_RST,0);
   tft.begin();
-  // read diagnostics (optional but can help debug problems)
-  uint8_t x = tft.readcommand8(ILI9488_RDMODE);
-  Serial.print("Display Power Mode: 0x"); Serial.println(x, HEX);
-  x = tft.readcommand8(ILI9488_RDMADCTL);
-  Serial.print("MADCTL Mode: 0x"); Serial.println(x, HEX);
-  x = tft.readcommand8(ILI9488_RDPIXFMT);
-  Serial.print("Pixel Format: 0x"); Serial.println(x, HEX);
-  x = tft.readcommand8(ILI9488_RDIMGFMT);
-  Serial.print("Image Format: 0x"); Serial.println(x, HEX);
-  x = tft.readcommand8(ILI9488_RDSELFDIAG);
-  Serial.print("Self Diagnostic: 0x"); Serial.println(x, HEX);
- 
-  Serial.println(F("Benchmark                Time (microseconds)"));
-
-  Serial.print(F("Screen fill              "));
-  Serial.println(testFillScreen());
-  delay(500);
-
-  Serial.print(F("Text                     "));
-  Serial.println(testText());
-  delay(3000);
-
-  Serial.print(F("Lines                    "));
-  Serial.println(testLines(ILI9488_CYAN));
-  delay(500);
-
-  Serial.print(F("Horiz/Vert Lines         "));
-  Serial.println(testFastLines(ILI9488_RED, ILI9488_BLUE));
-  delay(500);
-
-  Serial.print(F("Rectangles (outline)     "));
-  Serial.println(testRects(ILI9488_GREEN));
-  delay(500);
-
-  // Serial.print(F("Rectangles (filled)      "));
-  // Serial.println(testFilledRects(ILI9488_YELLOW, ILI9488_MAGENTA));
-  // delay(500);
-
-  // Serial.print(F("Circles (filled)         "));
-  // Serial.println(testFilledCircles(10, ILI9488_MAGENTA));
-
-  // Serial.print(F("Circles (outline)        "));
-  // Serial.println(testCircles(10, ILI9488_WHITE));
-  // delay(500);
-
-  // Serial.print(F("Triangles (outline)      "));
-  // Serial.println(testTriangles());
-  // delay(500);
-
-  // Serial.print(F("Triangles (filled)       "));
-  // Serial.println(testFilledTriangles());
-  // delay(500);
-
-  // Serial.print(F("Rounded rects (outline)  "));
-  // Serial.println(testRoundRects());
-  // delay(500);
-
-  // Serial.print(F("Rounded rects (filled)   "));
-  // Serial.println(testFilledRoundRects());
-  // delay(500);
-
-  Serial.println(F("Done!"));
+  //TODO testLcd();
 // -------------------------------------------------------------
   // CAN BUS
   // -------------------------------------------------------------
@@ -889,4 +821,69 @@ unsigned long testFilledRoundRects() {
   }
 
   return micros() - start;
+}
+void testLcd()
+{
+  // read diagnostics (optional but can help debug problems)
+  uint8_t x = tft.readcommand8(ILI9488_RDMODE);
+  Serial.print("Display Power Mode: 0x"); Serial.println(x, HEX);
+  x = tft.readcommand8(ILI9488_RDMADCTL);
+  Serial.print("MADCTL Mode: 0x"); Serial.println(x, HEX);
+  x = tft.readcommand8(ILI9488_RDPIXFMT);
+  Serial.print("Pixel Format: 0x"); Serial.println(x, HEX);
+  x = tft.readcommand8(ILI9488_RDIMGFMT);
+  Serial.print("Image Format: 0x"); Serial.println(x, HEX);
+  x = tft.readcommand8(ILI9488_RDSELFDIAG);
+  Serial.print("Self Diagnostic: 0x"); Serial.println(x, HEX);
+ 
+  Serial.println(F("Benchmark                Time (microseconds)"));
+
+  Serial.print(F("Screen fill              "));
+  Serial.println(testFillScreen());
+  delay(500);
+
+  Serial.print(F("Text                     "));
+  Serial.println(testText());
+  delay(3000);
+
+  Serial.print(F("Lines                    "));
+  Serial.println(testLines(ILI9488_CYAN));
+  delay(500);
+
+  Serial.print(F("Horiz/Vert Lines         "));
+  Serial.println(testFastLines(ILI9488_RED, ILI9488_BLUE));
+  delay(500);
+
+  Serial.print(F("Rectangles (outline)     "));
+  Serial.println(testRects(ILI9488_GREEN));
+  delay(500);
+
+  Serial.print(F("Rectangles (filled)      "));
+  Serial.println(testFilledRects(ILI9488_YELLOW, ILI9488_MAGENTA));
+  delay(500);
+
+  Serial.print(F("Circles (filled)         "));
+  Serial.println(testFilledCircles(10, ILI9488_MAGENTA));
+
+  Serial.print(F("Circles (outline)        "));
+  Serial.println(testCircles(10, ILI9488_WHITE));
+  delay(500);
+
+  Serial.print(F("Triangles (outline)      "));
+  Serial.println(testTriangles());
+  delay(500);
+
+  Serial.print(F("Triangles (filled)       "));
+  Serial.println(testFilledTriangles());
+  delay(500);
+
+  Serial.print(F("Rounded rects (outline)  "));
+  Serial.println(testRoundRects());
+  delay(500);
+
+  Serial.print(F("Rounded rects (filled)   "));
+  Serial.println(testFilledRoundRects());
+  delay(500);
+
+  Serial.println(F("Done!"));
 }
