@@ -223,15 +223,6 @@ void ILI9488::begin(void) {
  
   if(hwSPI) { // Using hardware SPI
   SPI.begin(0,36,35,7);
-  Serial.print("MOSI: ");
-  Serial.println(MOSI);
-  Serial.print("MISO: ");
-  Serial.println(MISO);
-  Serial.print("SCK: ");
-  Serial.println(SCK);
-  Serial.print("SS: ");
-  Serial.println(SS);  
- 
 #ifndef SPI_HAS_TRANSACTION
     SPI.setBitOrder(MSBFIRST);
     SPI.setDataMode(SPI_MODE0);
