@@ -89,11 +89,11 @@ bool TwaiCAN::begin(TwaiSpeed twaiSpeed,
 
     bool ret = false;
     if(end()) {
-        init = true;
         setSpeed(twaiSpeed);
         setPins(txPin, rxPin, clkPin, busoffPin);
         setTxQueueSize(txQueue);
         setRxQueueSize(rxQueue);
+        init = true;
 
         twai_general_config_t g_config = {.mode = TWAI_MODE_NO_ACK, .tx_io = (gpio_num_t) tx, .rx_io = (gpio_num_t) rx, \
                                                 .clkout_io = (gpio_num_t)clk_out, .bus_off_io = (gpio_num_t)bus_off,      \

@@ -13,5 +13,56 @@ typedef enum
     RIGHT = 2
 } eJustify_t;
 
+typedef struct 
+{
+    uint32_t MotorTemp;
+    uint32_t ControllerTemp;
+    uint32_t MotorRpm;
+    uint32_t PhaseCurrent;
+    bool ControllerCommsOk;
+} sPropData_t;
+typedef struct
+{
+    uint32_t Voltage;
+    uint32_t Current;
+    uint32_t SoC;
+    uint32_t Temp;
+    bool BmsCommsOk;
+} sBmsData_t;
+typedef struct
+{
+    sPropData_t Port;
+    sPropData_t Starboard;
+    sBmsData_t ForwardBattery;
+    sBmsData_t AftBattery;
+    bool CoolantFan;
+    bool AmbientFan;
+    bool CoolantPump;
+    uint32_t InletTemp;
+    uint32_t OutletTemp;
+    uint32_t UpTime;
+    char Ssid[40];
+    char IpAddr[16];
+    uint32_t RunTime;
+    uint32_t ShaftRpm;
+} sDisplayData_t;
+
 void createFixedElements(ILI9488* tft);
+void createDynamicElements(ILI9488* tft, sDisplayData_t sDisplayData);
+void testLcd(ILI9488* tft);
+unsigned long testFillScreen(ILI9488* tft);
+unsigned long testText(ILI9488* tft);
+unsigned long testLines(ILI9488* tft,uint16_t color);
+unsigned long testFastLines(ILI9488* tft,uint16_t color1, uint16_t color2);
+unsigned long testRects(ILI9488* tft,uint16_t color);
+unsigned long testFilledRects(ILI9488* tft,uint16_t color1, uint16_t color2);
+unsigned long testFilledCircles(ILI9488* tft,uint8_t radius, uint16_t color);
+unsigned long testCircles(ILI9488* tft,uint8_t radius, uint16_t color);
+unsigned long testTriangles(ILI9488* tft);
+unsigned long testFilledTriangles(ILI9488* tft);
+unsigned long testRoundRects(ILI9488* tft);
+unsigned long testFilledRoundRects(ILI9488* tft);
+
+
+
 #endif

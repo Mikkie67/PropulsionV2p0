@@ -1,19 +1,23 @@
 #include "ker_can.hpp"
 
 ker_can::ker_can(uint8_t _mcu_port, uint8_t _mcu_starboard) {
-  McuPort.begin(&ESP32Can, _mcu_port);
-  McuStarboard.begin(&ESP32Can, _mcu_starboard);
+  mcuPort = _mcu_port;
+  mcuStarboard = _mcu_starboard;
+  McuPort.begin(&ESP32Can, mcuPort);
+  McuStarboard.begin(&ESP32Can, mcuStarboard);
 }
 ker_can::~ker_can() {}
 
 bool ker_can::begin(uint8_t _txPin, uint8_t _rxPin, uint8_t _clkPin,
                     uint8_t _busoffPin) {
   bool ret = false;
-  Serial.printf("CAN Init Status %d", ESP32Can.getInit());
+  Serial.printf("CAN Init Status %d\n", ESP32Can.getInit());
   ESP32Can.setPins(_txPin, _rxPin, _clkPin, _busoffPin);
   ESP32Can.setRxQueueSize(8);
   ESP32Can.setTxQueueSize(8);
   ESP32Can.setSpeed(ESP32Can.convertSpeed(250));
+
+  //if (ESP32Can.begin(ESP32Can.convertSpeed(250),_txPin,_rxPin,-1,-1,8,8,NULL,NULL,NULL)) {
   if (ESP32Can.begin()) {
     Serial.println("CAN bus started!");
     ret = true;

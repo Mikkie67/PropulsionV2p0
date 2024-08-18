@@ -21,6 +21,8 @@ class ker_can {
   bool checkReceiver(void);
   bool SendCommands(int16_t TargetPhaseCurrent, int16_t TargetSpeed,
                     int8_t ControlMode);
+                    uint8_t mcuPort;
+                    uint8_t mcuStarboard;
   ezkontrolVCU McuPort;
   ezkontrolVCU McuStarboard;
 };
