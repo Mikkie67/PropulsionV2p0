@@ -31,6 +31,7 @@ bool ker_can::checkReceiver(void) {
   if (ESP32Can.readFrame(&rxFrame, 1000)) {
     Serial.printf("Received frame: %08X  \r\n", rxFrame.identifier);
     Serial.printf("SA = %02X, DA = %02X, PF = %02X\r\n", ezkontrolVCU::GetSA(rxFrame),ezkontrolVCU::GetPS(rxFrame),ezkontrolVCU::GetPF(rxFrame));
+    Serial.printf("McuPort=%02X, McuStarboard=%02X\n",McuPort.getID(),McuStarboard.getID());
     if (ezkontrolVCU::GetSA(rxFrame) == McuPort.getID()) {
       ret = McuPort.checkFrame(rxFrame);
     }

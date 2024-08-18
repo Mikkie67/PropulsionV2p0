@@ -18,6 +18,7 @@ bool ezkontrolVCU::checkFrame(CanFrame _rxFrame) {
         (_rxFrame.data[4] == 0x55) && (_rxFrame.data[5] == 0x55) &&
         (_rxFrame.data[6] == 0x55) && (_rxFrame.data[7] == 0x55)) {
       SendSyncReply(mcuID);
+      Serial.println("CAN SYNC received from MCU");
       sCurrentCanState = STATE_SYNCED;
       CanRxMsg++;
       ret = true;
@@ -77,7 +78,7 @@ bool ezkontrolVCU::SendSyncReply(uint8_t _mcuID) {
 bool ezkontrolVCU::SendCommand(int16_t TargetPhaseCurrent, int16_t TargetSpeed,
                                int8_t ControlMode) {
   bool ret = false;
-  if (sCurrentCanState > STATE_SYNCED) {
+  if (sCurrentCanState >= STATE_SYNCED) {
     CanFrame TxFrame = {0};
     TxFrame.identifier = 0x0C010000 + +(mcuID << 8) + vcuID;
     TxFrame.extd = 1;

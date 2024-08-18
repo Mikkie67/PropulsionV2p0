@@ -429,12 +429,12 @@ void setupShaftRpm(void) {
   // SHAFT RPM
   // -------------------------------------------------------------
   // Set GPIO pin to output and toggle it every kDigitalOutputInterval
-  const uint8_t kDigitalOutputPin = TEST_DIG_OUTPUT;
-  const unsigned int kDigitalOutputInterval = 20;
-  pinMode(kDigitalOutputPin, OUTPUT);
-  app.onRepeat(kDigitalOutputInterval, [kDigitalOutputPin]() {
-    digitalWrite(kDigitalOutputPin, !digitalRead(kDigitalOutputPin));
-  });
+  // const uint8_t kDigitalOutputPin = TEST_DIG_OUTPUT;
+  // const unsigned int kDigitalOutputInterval = 20;
+  // pinMode(kDigitalOutputPin, OUTPUT);
+  // app.onRepeat(kDigitalOutputInterval, [kDigitalOutputPin]() {
+  //   digitalWrite(kDigitalOutputPin, !digitalRead(kDigitalOutputPin));
+  // });
   // Display scale meta configuration
   sDisplayScale_t displayScale;
   displayScale.lowerDisplayScale = 0;
