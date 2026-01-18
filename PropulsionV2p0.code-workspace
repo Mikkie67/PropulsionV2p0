@@ -58,7 +58,8 @@
 			"stdexcept": "cpp",
 			"streambuf": "cpp",
 			"cinttypes": "cpp",
-			"typeinfo": "cpp"
+			"typeinfo": "cpp",
+			"adc1_rs485.h": "c"
 		}
 	}
 }
