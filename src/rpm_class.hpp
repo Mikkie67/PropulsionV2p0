@@ -32,10 +32,10 @@ unsigned long timeIntervalMicros;
         double timeSinceLastPulseMicros = timeDifferenceMicros(currentTimeMicros, lastPulseTimeMicros);
         double expectedTimeBetweenPulsesMicros = timeIntervalMicros;
 
-        // If time since last pulse is more than 110% of the expected time, start decay
-        if (timeSinceLastPulseMicros > 1.1 * expectedTimeBetweenPulsesMicros) {
-            currentFrequency = 1000000.0 / timeSinceLastPulseMicros;
-            if (currentFrequency < 1) currentFrequency = 0;
+        // If time since last pulse is more than 105% of the expected time, start faster decay
+        if (timeSinceLastPulseMicros > 1.05 * expectedTimeBetweenPulsesMicros) {
+            currentFrequency *= (1.0 - decayRate);  // Apply decay multiplier each update
+            if (currentFrequency < 0.1) currentFrequency = 0;
         }
   }
 

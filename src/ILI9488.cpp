@@ -80,7 +80,9 @@ ILI9488::ILI9488(int8_t cs, int8_t dc, int8_t rst) : Adafruit_GFX(ILI9488_TFTWID
   _dc   = dc;
   _rst  = rst;
   hwSPI = true;
-  _mosi  = _sclk = 0;
+  _mosi  = -1;
+  _sclk = -1;
+  _miso = -1;
 }
 
 void ILI9488::spiwrite(uint8_t c) {
@@ -138,7 +140,6 @@ void ILI9488::writecommand(uint8_t c) {
   *csport &= ~cspinmask;
 #else
   digitalWrite(_dc, LOW);
-  digitalWrite(_sclk, LOW);
   digitalWrite(_cs, LOW);
 #endif
 
@@ -876,6 +877,8 @@ void ILI9488::invertDisplay(boolean i) {
 
 uint8_t ILI9488::spiread(void) {
   uint8_t r = 0;
+  
+  log_e("ILI9488::spiread() called! hwSPI=%d", hwSPI);
 
   if (hwSPI) {
 #if defined (__AVR__)
@@ -895,7 +898,7 @@ uint8_t ILI9488::spiread(void) {
 #endif
 
   } else {
-
+    log_e("ILI9488::spiread() - About to digitalRead(_miso) with _miso=%d", _miso);
     for (uint8_t i=0; i<8; i++) {
       digitalWrite(_sclk, LOW);
       digitalWrite(_sclk, HIGH);
@@ -910,9 +913,14 @@ uint8_t ILI9488::spiread(void) {
 }
 
  uint8_t ILI9488::readdata(void) {
+   log_e("ILI9488::readdata() called!");
    digitalWrite(_dc, HIGH);
    digitalWrite(_cs, LOW);
-   uint8_t r = spiread();
+   uint8_t r = 0;
+   if (!hwSPI) {
+     log_e("ILI9488::readdata() - calling spiread()");
+     r = spiread();
+   }
    digitalWrite(_cs, HIGH);
 
    return r;
@@ -920,6 +928,7 @@ uint8_t ILI9488::spiread(void) {
 
 
 uint8_t ILI9488::readcommand8(uint8_t c, uint8_t index) {
+   log_e("ILI9488::readcommand8() called with c=0x%02X, index=%d, hwSPI=%d", c, index, hwSPI);
    if (hwSPI) spi_begin();
    digitalWrite(_dc, LOW); // command
    digitalWrite(_cs, LOW);
@@ -929,12 +938,16 @@ uint8_t ILI9488::readcommand8(uint8_t c, uint8_t index) {
    digitalWrite(_cs, HIGH);
 
    digitalWrite(_dc, LOW);
-   digitalWrite(_sclk, LOW);
+   if (!hwSPI) digitalWrite(_sclk, LOW);
    digitalWrite(_cs, LOW);
    spiwrite(c);
 
    digitalWrite(_dc, HIGH);
-   uint8_t r = spiread();
+   uint8_t r = 0;
+   if (!hwSPI) {
+     log_e("ILI9488::readcommand8() - calling spiread()");
+     r = spiread();
+   }
    digitalWrite(_cs, HIGH);
    if (hwSPI) spi_end();
    return r;

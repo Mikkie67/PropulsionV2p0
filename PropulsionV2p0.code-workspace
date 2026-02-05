@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../SensESP-project-template"
 		}
 	],
 	"settings": {

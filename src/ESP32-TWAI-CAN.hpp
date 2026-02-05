@@ -23,6 +23,8 @@
 #endif
 #include "driver/twai.h"
 
+// Define TAG for ESP-IDF logging macros
+#define TAG "TWAI_CAN"
 
 // Uncomment or declare before importing header
 #define LOG_TWAI log_e

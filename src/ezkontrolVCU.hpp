@@ -42,6 +42,13 @@ class ezkontrolVCU {
   uint8_t getID(void){return mcuID;};
   bool checkFrame(CanFrame _RxFrame);
   bool SendSyncReply(uint8_t _mcuID);
+  int16_t getThrottlePosition(void) {return sMcuData.ThrottlePosition;};
+  int16_t getSpeedRpm(void) {return sMcuData.SpeedRpm;};
+  int16_t getMotorTemp(void) {return sMcuData.MotorTemp;};
+  int16_t getControllerTemp(void) {return sMcuData.ControllerTemp;};
+  int16_t getBusVoltage(void) {return sMcuData.BusVoltage;};
+  int16_t getBusCurrent(void) {return sMcuData.BusCurrent;};
+  int16_t getPhaseCurrent(void) {return sMcuData.PhaseCurrent;};
   bool SendCommand(int16_t TargetPhaseCurrent, int16_t TargetSpeed,
                    int8_t ControlMode);
   static uint8_t GetSA(CanFrame aCanFrame);

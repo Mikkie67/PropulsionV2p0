@@ -3,10 +3,6 @@
 
 #include <map>
 
-#include "sensesp/signalk/signalk_position.h"
-#include "sensesp/system/observablevalue.h"
-#include "sensesp/types/position.h"
-
 // maximum is 82, but let's give it a bit of margin.
 constexpr int kBMSInputBufferLength = 164;
 
