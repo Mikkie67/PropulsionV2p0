@@ -47,6 +47,60 @@ uint16_t WriteJustifiedValue(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uin
     return y_pos;
 }
 
+uint16_t WriteJustifiedBool(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, bool value, eJustify_t eJustify, bool newline) 
+{
+    uint16_t x_pos=0;
+    char str[20] = {0};
+    sprintf(str,"%s", value ? " ON" : "OFF");
+    switch (eJustify)
+    {
+    case CENTER:
+        x_pos = x_start + (((x_stop-x_start)/2) - (strnlen(str,80)*PIXEL_WIDTH)/2); break;
+    case LEFT:
+        x_pos = x_start; break;
+    case RIGHT:
+        x_pos = (x_stop - (strnlen(str,80)*PIXEL_WIDTH)); break;
+    default:
+        break;
+    }
+    tft->setCursor(x_pos,y_pos);
+    tft->println(str);
+    if (newline)
+    {
+        y_pos += PIXEL_HEIGHT;
+    }
+    return y_pos;
+}
+
+uint16_t WriteJustifiedTemp(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, int32_t value, eJustify_t eJustify, bool newline) 
+{
+    uint16_t x_pos=0;
+    char str[20] = {0};
+    if (value < 0) {
+        sprintf(str,"--C");
+    } else {
+        sprintf(str,"%dC", value);
+    }
+    switch (eJustify)
+    {
+    case CENTER:
+        x_pos = x_start + (((x_stop-x_start)/2) - (strnlen(str,80)*PIXEL_WIDTH)/2); break;
+    case LEFT:
+        x_pos = x_start; break;
+    case RIGHT:
+        x_pos = (x_stop - (strnlen(str,80)*PIXEL_WIDTH)); break;
+    default:
+        break;
+    }
+    tft->setCursor(x_pos,y_pos);
+    tft->println(str);
+    if (newline)
+    {
+        y_pos += PIXEL_HEIGHT;
+    }
+    return y_pos;
+}
+
 void createFixedElements(ILI9488* tft) {
   char string[80] = {};
   uint16_t y_pos = 0;
@@ -71,8 +125,8 @@ void createFixedElements(ILI9488* tft) {
   y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"COOLANT FAN",       eJustify_t::LEFT,true);
   y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"AMBIENT FAN",       eJustify_t::LEFT,true);
   y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"COOLANT PUMP",       eJustify_t::LEFT,true);
-  y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"INLET TEMP",       eJustify_t::LEFT,true);
-  y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"OUTLET TEMP",       eJustify_t::LEFT,true);
+  y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"AMBIENT TEMP",       eJustify_t::LEFT,true);
+  y_pos = WriteJustifiedString(tft,y_pos,0  ,240,"COOLANT TEMP",       eJustify_t::LEFT,true);
   y_pos = y_stored_pos;
   y_pos = WriteJustifiedString(tft,y_pos,240,480,"UP TIME",       eJustify_t::LEFT,true);
   y_pos = WriteJustifiedString(tft,y_pos,240,480,"SSID",       eJustify_t::LEFT,true);
@@ -94,10 +148,10 @@ void createDynamicElements(ILI9488* tft, sDisplayData_t sDisplayData)
   uint16_t y_pos = 20;
   tft->setTextColor(ILI9488_GREEN,0x0000);
   tft->setTextSize(2);
-  y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.Port.MotorTemp, eJustify_t::LEFT,false);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.Starboard.MotorTemp, eJustify_t::RIGHT,true);
-  y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.Port.ControllerTemp, eJustify_t::LEFT,false);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.Starboard.ControllerTemp, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedTemp(tft,y_pos,30  ,480,sDisplayData.Port.MotorTemp, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedTemp(tft,y_pos,0  ,440,sDisplayData.Starboard.MotorTemp, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedTemp(tft,y_pos,30  ,480,sDisplayData.Port.ControllerTemp, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedTemp(tft,y_pos,0  ,440,sDisplayData.Starboard.ControllerTemp, eJustify_t::RIGHT,true);
   y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.Port.MotorRpm, eJustify_t::LEFT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.Starboard.MotorRpm, eJustify_t::RIGHT,true);
   y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.Port.PhaseCurrent, eJustify_t::LEFT,false);
@@ -111,24 +165,20 @@ void createDynamicElements(ILI9488* tft, sDisplayData_t sDisplayData)
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.AftBattery.Current, eJustify_t::RIGHT,true);
   y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.SoC, eJustify_t::LEFT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.AftBattery.SoC, eJustify_t::RIGHT,true);
-  y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Temp, eJustify_t::LEFT,false);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.AftBattery.Temp, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedTemp(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Temp, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedTemp(tft,y_pos,0  ,440,sDisplayData.AftBattery.Temp, eJustify_t::RIGHT,true);
   //y_pos = WriteJustifiedValue(tft,y_pos,0  ,480,sDisplayData.Port.ControllerTemp, eJustify_t::LEFT,false);
   //y_pos = WriteJustifiedValue(tft,y_pos,0  ,480,sDisplayData.Starboard.ControllerTemp, eJustify_t::RIGHT,true);
   y_pos = 215;
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,200,sDisplayData.CoolantFan, eJustify_t::RIGHT,false);
+  y_pos = WriteJustifiedBool(tft,y_pos,0  ,200,sDisplayData.CoolantFan, eJustify_t::RIGHT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,470,sDisplayData.UpTime, eJustify_t::RIGHT,true);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,200,sDisplayData.AmbientFan, eJustify_t::RIGHT,false);
-  tft->setTextSize(1);
+  y_pos = WriteJustifiedBool(tft,y_pos,0  ,200,sDisplayData.AmbientFan, eJustify_t::RIGHT,false);
   y_pos = WriteJustifiedString(tft,y_pos,0  ,470,sDisplayData.Ssid, eJustify_t::RIGHT,true);
-  tft->setTextSize(2);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,200,sDisplayData.CoolantPump, eJustify_t::RIGHT,false);
-  tft->setTextSize(1);
+  y_pos = WriteJustifiedBool(tft,y_pos,0  ,200,sDisplayData.CoolantPump, eJustify_t::RIGHT,false);
   y_pos = WriteJustifiedString(tft,y_pos,0  ,470,sDisplayData.IpAddr, eJustify_t::RIGHT,true);
-  tft->setTextSize(2);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,200,sDisplayData.InletTemp, eJustify_t::RIGHT,false);
+  y_pos = WriteJustifiedTemp(tft,y_pos,0  ,200,sDisplayData.AmbientTemp, eJustify_t::RIGHT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,470,sDisplayData.RunTime, eJustify_t::RIGHT,true);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,200,sDisplayData.OutletTemp, eJustify_t::RIGHT,false);
+  y_pos = WriteJustifiedTemp(tft,y_pos,0  ,200,sDisplayData.CoolantTemp, eJustify_t::RIGHT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,470,sDisplayData.ShaftRpm, eJustify_t::RIGHT,true);
 }
 unsigned long testFillScreen(ILI9488* tft) {

@@ -137,6 +137,10 @@ bool spare1_relay_state = false;      // Current state of spare1 relay
 bool spare2_relay_state = false;      // Current state of spare2 relay
 bool spare3_relay_state = false;      // Current state of spare3 relay
 
+// Motor runtime tracking (persistent across sessions)
+bool motors_running = false;         // Current motor running state
+unsigned long motor_runtime_seconds = 0;  // Total accumulated motor runtime
+
 
 // Forward declarations - initialized in setupTempSensors() after sensesp_app is created
 DallasTemperatureSensors* dts = nullptr;
@@ -149,6 +153,8 @@ OneWireTemperature* temp_sensor_coolant = nullptr;
 
 // Hysteresis transforms for fan/pump control - initialized in setupFansPumps() after sensesp_app is created
 std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_fan_hyst = nullptr;
+std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_pump_hyst = nullptr; 
+std::shared_ptr<sensesp::Hysteresis<float, bool>> ambient_fan_hyst = nullptr;
 
 
 
@@ -161,6 +167,7 @@ auto coolant_fan_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
     digitalWrite(CoolantFanControl, on ? HIGH : LOW);
     if (on != coolant_fan_state) {
       coolant_fan_state = on;
+      sDisplayData.CoolantFan = on;
       debugD("Coolant fan command: %s", on ? "ON" : "OFF");
     }
   }
@@ -171,6 +178,7 @@ auto ambient_fan_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
     digitalWrite(AmbientFanControl, on ? HIGH : LOW);
     if (on != ambient_fan_state) {
       ambient_fan_state = on;
+      sDisplayData.AmbientFan = on;
       debugD("Ambient fan command: %s", on ? "ON" : "OFF");
     }
   }
@@ -181,7 +189,8 @@ auto coolant_pump_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
     digitalWrite(CoolantPumpControl, on ? HIGH : LOW);
     if (on != coolant_pump_state) {
       coolant_pump_state = on;
-      debugD("Coolant pump command: %s", on ? "ON" : "OFF");
+      sDisplayData.CoolantPump = on;
+     debugD("Coolant pump command: %s", on ? "ON" : "OFF");
     }
   }
 );
@@ -408,38 +417,40 @@ void setupLcdDisplay(void) {
   tft.fillScreen(ILI9488_BLACK);
 
   createFixedElements(&tft);
-  // test data
-  sDisplayData.Port.MotorTemp = 24;
-  sDisplayData.Port.ControllerTemp = 25;
-  sDisplayData.Port.MotorRpm = 1421;
-  sDisplayData.Port.PhaseCurrent = 234;
-  sDisplayData.Port.ControllerCommsOk = true;
-  sDisplayData.Starboard.MotorTemp = 30;
-  sDisplayData.Starboard.ControllerTemp = 35;
-  sDisplayData.Starboard.MotorRpm = 1521;
-  sDisplayData.Starboard.PhaseCurrent = 455;
+  // Initialize display data with sentinel values (--) until real values arrive
+  sDisplayData.Port.MotorTemp = -1;
+  sDisplayData.Port.ControllerTemp = -1;
+  sDisplayData.Port.MotorRpm = -1;
+  sDisplayData.Port.PhaseCurrent = -1;
+  sDisplayData.Port.ControllerCommsOk = false;
+  sDisplayData.Starboard.MotorTemp = -1;
+  sDisplayData.Starboard.ControllerTemp = -1;
+  sDisplayData.Starboard.MotorRpm = -1;
+  sDisplayData.Starboard.PhaseCurrent = -1;
   sDisplayData.Starboard.ControllerCommsOk = false;
-  sDisplayData.ForwardBattery.Voltage = 54;
-  sDisplayData.ForwardBattery.Current = 421;
-  sDisplayData.ForwardBattery.SoC = 99;
-  sDisplayData.ForwardBattery.Temp = 21;
+  sDisplayData.ForwardBattery.Voltage = -1;
+  sDisplayData.ForwardBattery.Current = -1;
+  sDisplayData.ForwardBattery.SoC = -1;
+  sDisplayData.ForwardBattery.Temp = -1;
   sDisplayData.ForwardBattery.BmsCommsOk = false;
-  sDisplayData.AftBattery.Voltage = 56;
-  sDisplayData.AftBattery.Current = 221;
-  sDisplayData.AftBattery.SoC = 100;
-  sDisplayData.AftBattery.Temp = 70;
-  sDisplayData.AftBattery.BmsCommsOk = true;
-  sDisplayData.CoolantFan = true;
+  sDisplayData.AftBattery.Voltage = -1;
+  sDisplayData.AftBattery.Current = -1;
+  sDisplayData.AftBattery.SoC = -1;
+  sDisplayData.AftBattery.Temp = -1;
+  sDisplayData.AftBattery.BmsCommsOk = false;
+  sDisplayData.CoolantFan = false;
   sDisplayData.AmbientFan = false;
-  sDisplayData.CoolantPump = true;
-  sDisplayData.InletTemp = 34;
-  sDisplayData.OutletTemp = 23;
+  sDisplayData.CoolantPump = false;
+  sDisplayData.AmbientTemp = -1;
+  sDisplayData.CoolantTemp = -1;
   sDisplayData.UpTime = 0;
-  snprintf(sDisplayData.Ssid, strlen("Kerosheba") + 1, "Kerosheba");
-  snprintf(sDisplayData.IpAddr, strlen("192.168.213.234") + 1,
-           "192.168.213.234");
-  sDisplayData.RunTime = 4353432;
-  sDisplayData.ShaftRpm = 1232;
+  // Get actual WiFi network SSID and station IP address
+  String ssid_str = WiFi.SSID();
+  snprintf(sDisplayData.Ssid, sizeof(sDisplayData.Ssid), "%s", ssid_str.c_str());
+  String ip_str = WiFi.localIP().toString();
+  snprintf(sDisplayData.IpAddr, sizeof(sDisplayData.IpAddr), "%s", ip_str.c_str());
+  sDisplayData.RunTime = 0;
+  sDisplayData.ShaftRpm = -1;
   createDynamicElements(&tft, sDisplayData);
   app.onRepeat(1000, []() {
     sDisplayData.UpTime++;
@@ -563,23 +574,44 @@ void setupFansPumps(void) {
   
   // Initialize hysteresis transform for coolant fan control
   coolant_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
-       303.15f,   // lower threshold (OFF) in Kelvin
-       305.15f,   // upper threshold (ON) in Kelvin
-       false,   // low_output
-       true,    // high_output
+       303.15f,   // lower threshold (OFF) in Kelvin (30°C)
+       305.15f,   // upper threshold (ON) in Kelvin (32°C)
+       false,     // low_output
+       true,      // high_output
        "/coolant_fan_control"
   );
 
   temp_sensor_coolant->connect_to(coolant_fan_hyst)->connect_to(coolant_fan_cmd);
-  ConfigItem(coolant_fan_hyst.get());
+  ConfigItem(coolant_fan_hyst.get())
+    ->set_title("Coolant Fan Control")
+    ->set_description("Hysteresis control with ON/OFF thresholds in Kelvin (add 273.15 to convert from Celsius).")
+    ->set_sort_order(200);
    
-    // =========================================================
-    // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
-    // =========================================================
-
-    // =========================================================
-    // AMBIENT FAN - Controlled by engine room temperature
-    // =========================================================
+  // =========================================================
+  // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
+  // =========================================================
+  
+  // TODO: Pump control implementation pending - needs max motor/controller temp tracking
+  // For now, pump remains OFF
+  
+  // =========================================================
+  // AMBIENT FAN - Controlled by engine room temperature
+  // =========================================================
+  
+  // Initialize hysteresis transform for ambient fan control
+  ambient_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
+       308.15f,   // lower threshold (OFF) in Kelvin (35°C)
+       310.15f,   // upper threshold (ON) in Kelvin (37°C)
+       false,     // low_output
+       true,      // high_output
+       "/ambient_fan_control"
+  );
+  
+  temp_sensor_engineRoom->connect_to(ambient_fan_hyst)->connect_to(ambient_fan_cmd);
+  ConfigItem(ambient_fan_hyst.get())
+    ->set_title("Ambient Fan Control")
+    ->set_description("Hysteresis control for engine room ambient temperature cooling.")
+    ->set_sort_order(202);
 } 
 void setupShaftRpm(void) {
   // Shaft RPM monitoring - reads pulses from propeller speed sensor via interrupt
@@ -607,11 +639,27 @@ void setupShaftRpm(void) {
   //   1200-1500 RPM: Orange (alarm)
   //   1500+ RPM: Red (fault)
   
-  // Periodic update of shaft RPM to Signal K
+  // Periodic update of shaft RPM to Signal K and motor runtime tracking
   app.onRepeat(1000, [shaft_rpm_output]() {
     double frequency = clShaftFreq.getCurrentFrequency();
     float rpm = frequency * 60;
     shaft_rpm_output->set(rpm);
+    
+    // Track motor runtime: start when RPM > 100, stop when RPM < 20
+    if (rpm > 100.0f && !motors_running) {
+      motors_running = true;
+      debugI("Motors started - beginning runtime accumulation");
+    } else if (rpm < 20.0f && motors_running) {
+      motors_running = false;
+      debugI("Motors stopped - paused runtime accumulation at %lu seconds", motor_runtime_seconds);
+    }
+    
+    // Increment runtime when motors are running
+    if (motors_running) {
+      motor_runtime_seconds++;
+      sDisplayData.RunTime = (uint32_t)(motor_runtime_seconds / 60);  // Convert to minutes for display
+    }
+    
     if (frequency > 0) {
       debugI("Shaft RPM: %.0f (Zone determination in UI)", rpm);
     }
@@ -718,7 +766,7 @@ void setupTempSensors(void) {
       new LambdaConsumer<float>([engine_room_sk](const float& temp) {
         float celsius = temp - 273.15f;
         engineroom_temperature = celsius;
-        sDisplayData.InletTemp = (int)celsius;
+        sDisplayData.AmbientTemp = (int)celsius;
         engine_room_sk->set(temp);
       })
   );
@@ -728,7 +776,7 @@ void setupTempSensors(void) {
       new LambdaConsumer<float>([coolant_sk](const float& temp) {
         float celsius = temp - 273.15f;
         coolant_temperature = celsius;
-        sDisplayData.OutletTemp = (int)celsius;
+        sDisplayData.CoolantTemp = (int)celsius;
         coolant_sk->set(temp);
       })
   );

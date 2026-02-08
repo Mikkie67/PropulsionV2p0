@@ -15,8 +15,8 @@ typedef enum
 
 typedef struct 
 {
-    uint32_t MotorTemp;
-    uint32_t ControllerTemp;
+    int32_t MotorTemp;
+    int32_t ControllerTemp;
     uint32_t MotorRpm;
     uint32_t PhaseCurrent;
     bool ControllerCommsOk;
@@ -26,7 +26,7 @@ typedef struct
     uint32_t Voltage;
     uint32_t Current;
     uint32_t SoC;
-    uint32_t Temp;
+    int32_t Temp;
     bool BmsCommsOk;
 } sBmsData_t;
 typedef struct
@@ -38,15 +38,17 @@ typedef struct
     bool CoolantFan;
     bool AmbientFan;
     bool CoolantPump;
-    uint32_t InletTemp;
-    uint32_t OutletTemp;
+    int32_t AmbientTemp;
+    int32_t CoolantTemp;
     uint32_t UpTime;
     char Ssid[40];
     char IpAddr[16];
     uint32_t RunTime;
-    uint32_t ShaftRpm;
+    int32_t ShaftRpm;
 } sDisplayData_t;
 
+uint16_t WriteJustifiedBool(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, bool value, eJustify_t eJustify, bool newline);
+uint16_t WriteJustifiedTemp(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, int32_t value, eJustify_t eJustify, bool newline);
 void createFixedElements(ILI9488* tft);
 void createDynamicElements(ILI9488* tft, sDisplayData_t sDisplayData);
 void testLcd(ILI9488* tft);
