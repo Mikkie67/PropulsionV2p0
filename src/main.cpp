@@ -452,8 +452,9 @@ void setupLcdDisplay(void) {
   sDisplayData.RunTime = 0;
   sDisplayData.ShaftRpm = -1;
   createDynamicElements(&tft, sDisplayData);
-  app.onRepeat(1000, []() {
+  app.onRepeat(1000, [&]() {
     sDisplayData.UpTime++;
+    debugI("Display update: AmbientTemp=%d, CoolantTemp=%d", sDisplayData.AmbientTemp, sDisplayData.CoolantTemp);
     createDynamicElements(&tft, sDisplayData);
   });
   // TODO testLcd();
