@@ -141,6 +141,9 @@ bool spare3_relay_state = false;      // Current state of spare3 relay
 bool motors_running = false;         // Current motor running state
 unsigned long motor_runtime_seconds = 0;  // Total accumulated motor runtime
 
+// Coolant pump max temperature tracking - updated by sensor callbacks
+float max_motor_controller_temp_kelvin = 273.15f;  // Track max of 4 temps in Kelvin for pump control
+
 
 // Forward declarations - initialized in setupTempSensors() after sensesp_app is created
 DallasTemperatureSensors* dts = nullptr;
@@ -153,7 +156,7 @@ OneWireTemperature* temp_sensor_coolant = nullptr;
 
 // Hysteresis transforms for fan/pump control - initialized in setupFansPumps() after sensesp_app is created
 std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_fan_hyst = nullptr;
-std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_pump_hyst = nullptr; 
+std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_pump_hyst = nullptr;
 std::shared_ptr<sensesp::Hysteresis<float, bool>> ambient_fan_hyst = nullptr;
 
 
@@ -592,8 +595,35 @@ void setupFansPumps(void) {
   // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
   // =========================================================
   
-  // TODO: Pump control implementation pending - needs max motor/controller temp tracking
-  // For now, pump remains OFF
+  // Initialize hysteresis transform for coolant pump control using max motor/controller temp
+  coolant_pump_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
+       313.15f,   // lower threshold (OFF) in Kelvin (40°C)
+       315.15f,   // upper threshold (ON) in Kelvin (42°C)
+       false,     // low_output
+       true,      // high_output
+       "/coolant_pump_control"
+  );
+
+  coolant_pump_hyst->connect_to(coolant_pump_cmd);
+  ConfigItem(coolant_pump_hyst.get())
+    ->set_title("Coolant Pump Control")
+    ->set_description("Hysteresis control based on max motor/controller temperature. ON/OFF thresholds in Kelvin (add 273.15 to convert from Celsius).")
+    ->set_sort_order(201);
+  
+  // Periodic feedback of max motor/controller temp to hysteresis
+  app.onRepeat(1000, [&]() {
+    // Calculate the max of the 4 current temperatures (in Celsius, convert to Kelvin)
+    float temps_celsius[] = {portMotor_temperature, starboardMotor_temperature, 
+                             portController_temperature, starboardController_temperature};
+    float max_celsius = temps_celsius[0];
+    for (int i = 1; i < 4; i++) {
+      if (temps_celsius[i] > max_celsius) {
+        max_celsius = temps_celsius[i];
+      }
+    }
+    max_motor_controller_temp_kelvin = max_celsius + 273.15f;
+    coolant_pump_hyst->set(max_motor_controller_temp_kelvin);
+  });
   
   // =========================================================
   // AMBIENT FAN - Controlled by engine room temperature
