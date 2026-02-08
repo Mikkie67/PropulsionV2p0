@@ -27,6 +27,7 @@
 #include "sensesp/system/lambda_consumer.h"
 #include "sensesp_app_builder.h"
 #include "sensesp_onewire/onewire_temperature.h"
+#include <sensesp/transforms/hysteresis.h>
 
 using namespace sensesp;
 using namespace sensesp::onewire;
@@ -47,6 +48,7 @@ void setupThrottle(void);
 // 1-Wire data pin
 // -----------------------------------------------------------------------------
 const byte OneWirePin = 37;  // KerProp.1Wire
+const uint16_t TEMP_SENSOR_READ_INTERVAL = 1000;  // Temperature sensor read interval in milliseconds
 // -----------------------------------------------------------------------------
 // Opto inputs for status of fans and pumps
 // -----------------------------------------------------------------------------
@@ -67,6 +69,7 @@ const byte AmbientFanControl = 11;   // KerProp.RelayControl3
 const byte SpareControl1 = 12;       // KerProp.RelayControl4
 const byte SpareControl2 = 13;       // KerProp.RelayControl5
 const byte SpareControl3 = 14;       // KerProp.RelayControl6
+
 // -----------------------------------------------------------------------------
 // MODBUS BMS defines --> using serial port 1
 // -----------------------------------------------------------------------------
@@ -130,105 +133,90 @@ reactesp::ReactESP app;
 bool coolant_fan_state = false;      // Current state of coolant fan relay
 bool coolant_pump_state = false;     // Current state of coolant pump relay
 bool ambient_fan_state = false;      // Current state of ambient fan relay
+bool spare1_relay_state = false;      // Current state of spare1 relay
+bool spare2_relay_state = false;      // Current state of spare2 relay
+bool spare3_relay_state = false;      // Current state of spare3 relay
+
+
+// Forward declarations - initialized in setupTempSensors() after sensesp_app is created
+DallasTemperatureSensors* dts = nullptr;
+OneWireTemperature* temp_sensor_portMotor = nullptr;
+OneWireTemperature* temp_sensor_starboardMotor = nullptr;
+OneWireTemperature* temp_sensor_portController = nullptr;
+OneWireTemperature* temp_sensor_starboardController = nullptr;
+OneWireTemperature* temp_sensor_engineRoom = nullptr;
+OneWireTemperature* temp_sensor_coolant = nullptr;
+
+// Hysteresis transforms for fan/pump control - initialized in setupFansPumps() after sensesp_app is created
+std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_fan_hyst = nullptr;
+
+
 
 // =========================================================
-// FAN/PUMP CONFIGURATION CLASS - Persistent storage via SPIFFS
+// FAN/PUMP Control functions
 // =========================================================
-class FanPumpConfig : public FileSystemSaveable {
- private:
-  // Coolant fan thresholds
-  float coolant_fan_on_temp_ = 45.0f;
-  float coolant_fan_off_temp_ = 40.0f;
-  
-  // Coolant pump thresholds (for motor/controller temps)
-  float coolant_pump_on_temp_ = 40.0f;
-  float coolant_pump_off_temp_ = 35.0f;
-  
-  // Ambient fan thresholds
-  float ambient_fan_on_temp_ = 50.0f;
-  float ambient_fan_off_temp_ = 45.0f;
-  
- public:
-  FanPumpConfig(String config_path = "")
-      : FileSystemSaveable(config_path) {
-    this->load();
-  }
-  
-  // Coolant Fan
-  float get_coolant_fan_on_temp() const { return coolant_fan_on_temp_; }
-  void set_coolant_fan_on_temp(float temp) {
-    coolant_fan_on_temp_ = temp;
-    this->save();
-  }
-  
-  float get_coolant_fan_off_temp() const { return coolant_fan_off_temp_; }
-  void set_coolant_fan_off_temp(float temp) {
-    coolant_fan_off_temp_ = temp;
-    this->save();
-  }
-  
-  // Coolant Pump
-  float get_coolant_pump_on_temp() const { return coolant_pump_on_temp_; }
-  void set_coolant_pump_on_temp(float temp) {
-    coolant_pump_on_temp_ = temp;
-    this->save();
-  }
-  
-  float get_coolant_pump_off_temp() const { return coolant_pump_off_temp_; }
-  void set_coolant_pump_off_temp(float temp) {
-    coolant_pump_off_temp_ = temp;
-    this->save();
-  }
-  
-  // Ambient Fan
-  float get_ambient_fan_on_temp() const { return ambient_fan_on_temp_; }
-  void set_ambient_fan_on_temp(float temp) {
-    ambient_fan_on_temp_ = temp;
-    this->save();
-  }
-  
-  float get_ambient_fan_off_temp() const { return ambient_fan_off_temp_; }
-  void set_ambient_fan_off_temp(float temp) {
-    ambient_fan_off_temp_ = temp;
-    this->save();
-  }
-  
-  virtual bool to_json(JsonObject& root) override {
-    root["coolant_fan_on_temp"] = coolant_fan_on_temp_;
-    root["coolant_fan_off_temp"] = coolant_fan_off_temp_;
-    root["coolant_pump_on_temp"] = coolant_pump_on_temp_;
-    root["coolant_pump_off_temp"] = coolant_pump_off_temp_;
-    root["ambient_fan_on_temp"] = ambient_fan_on_temp_;
-    root["ambient_fan_off_temp"] = ambient_fan_off_temp_;
-    return true;
-  }
-  
-  virtual bool from_json(const JsonObject& config) override {
-    if (config["coolant_fan_on_temp"].is<float>()) {
-      coolant_fan_on_temp_ = config["coolant_fan_on_temp"].as<float>();
+auto coolant_fan_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
+  [](bool on) {
+    // drive your GPIO / relay here
+    digitalWrite(CoolantFanControl, on ? HIGH : LOW);
+    if (on != coolant_fan_state) {
+      coolant_fan_state = on;
+      debugD("Coolant fan command: %s", on ? "ON" : "OFF");
     }
-    if (config["coolant_fan_off_temp"].is<float>()) {
-      coolant_fan_off_temp_ = config["coolant_fan_off_temp"].as<float>();
-    }
-    if (config["coolant_pump_on_temp"].is<float>()) {
-      coolant_pump_on_temp_ = config["coolant_pump_on_temp"].as<float>();
-    }
-    if (config["coolant_pump_off_temp"].is<float>()) {
-      coolant_pump_off_temp_ = config["coolant_pump_off_temp"].as<float>();
-    }
-    if (config["ambient_fan_on_temp"].is<float>()) {
-      ambient_fan_on_temp_ = config["ambient_fan_on_temp"].as<float>();
-    }
-    if (config["ambient_fan_off_temp"].is<float>()) {
-      ambient_fan_off_temp_ = config["ambient_fan_off_temp"].as<float>();
-    }
-    return true;
   }
-};
+);
+auto ambient_fan_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
+  [](bool on) {
+    // drive your GPIO / relay here
+    digitalWrite(AmbientFanControl, on ? HIGH : LOW);
+    if (on != ambient_fan_state) {
+      ambient_fan_state = on;
+      debugD("Ambient fan command: %s", on ? "ON" : "OFF");
+    }
+  }
+);
+auto coolant_pump_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
+  [](bool on) {
+    // drive your GPIO / relay here
+    digitalWrite(CoolantPumpControl, on ? HIGH : LOW);
+    if (on != coolant_pump_state) {
+      coolant_pump_state = on;
+      debugD("Coolant pump command: %s", on ? "ON" : "OFF");
+    }
+  }
+);
+auto spare1_relay_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
+  [](bool on) {
+    // drive your GPIO / relay here
+    digitalWrite(SpareControl1, on ? HIGH : LOW);
+    if (on != spare1_relay_state) {
+      spare1_relay_state = on;
+      debugD("Spare1 relay command: %s", on ? "ON" : "OFF");
+    }
+  }
+);  
+auto spare2_relay_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
+  [](bool on) {
+    // drive your GPIO / relay here
+    digitalWrite(SpareControl2, on ? HIGH : LOW);
+    if (on != spare2_relay_state) {
+      spare2_relay_state = on;
+      debugD("Spare2 relay command: %s", on ? "ON" : "OFF");
+    }
+  }
+);
+auto spare3_relay_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
+  [](bool on) {
+    // drive your GPIO / relay here
+    digitalWrite(SpareControl3, on ? HIGH : LOW);
+    if (on != spare3_relay_state) {
+      spare3_relay_state = on;
+      debugD("Spare3 relay command: %s", on ? "ON" : "OFF");
+    }
+  }
+);
 
-// Global fan/pump configuration instance
-FanPumpConfig* fanpump_config = nullptr;
-
+ 
 // =========================================================
 // THROTTLE CONFIGURATION CLASS - Persistent storage via SPIFFS
 // =========================================================
@@ -353,6 +341,10 @@ void setup() {
   debugD("setupKerPropCanBus() complete");
   
  // setupBms();
+
+  debugD("Starting setupTempSensors()");
+  setupTempSensors();
+  debugD("setupTempSensors() complete");
   
   debugD("Starting setupFansPumps()");
   setupFansPumps();
@@ -362,9 +354,6 @@ void setup() {
   setupShaftRpm();
   debugD("setupShaftRpm() complete");
   
-  debugD("Starting setupTempSensors()");
-  // setupTempSensors();  // TEMPORARILY DISABLED - no OneWire sensors connected
-  debugD("setupTempSensors() complete");
   
   // Start networking, SK server connections and other SensESP internals
   debugD("Starting sensesp_app->start()");
@@ -544,9 +533,6 @@ void setupFansPumps(void) {
   // COOLANT FAN, PUMP AND AMBIENT FAN - Temperature controlled
   // =========================================================
   
-  // Initialize persistent fan/pump configuration
-  fanpump_config = new FanPumpConfig("/fanpump_config");
-  
   // Create digital outputs for relay control
   pinMode(CoolantFanControl, OUTPUT);
   pinMode(CoolantPumpControl, OUTPUT);
@@ -556,74 +542,45 @@ void setupFansPumps(void) {
   pinMode(SpareControl3, OUTPUT);
   
   // Create Signal K outputs for fan/pump status monitoring
-  auto* coolant_fan_output = new SKOutputBool(
-      "propulsion.cooling.coolantFan",
-      new SKMetadata("", "Coolant Fan", "Coolant fan relay status")
-  );
+  // auto* coolant_fan_output = new SKOutputBool(
+  //     "propulsion.cooling.coolantFan",
+  //     new SKMetadata("", "Coolant Fan", "Coolant fan relay status")
+  // );
   
-  auto* coolant_pump_output = new SKOutputBool(
-      "propulsion.cooling.coolantPump",
-      new SKMetadata("", "Coolant Pump", "Coolant pump relay status")
-  );
+  // auto* coolant_pump_output = new SKOutputBool(
+  //     "propulsion.cooling.coolantPump",
+  //     new SKMetadata("", "Coolant Pump", "Coolant pump relay status")
+  // );
   
-  auto* ambient_fan_output = new SKOutputBool(
-      "propulsion.cooling.ambientFan",
-      new SKMetadata("", "Ambient Fan", "Engine room ambient fan relay status")
-  );
+  // auto* ambient_fan_output = new SKOutputBool(
+  //     "propulsion.cooling.ambientFan",
+  //     new SKMetadata("", "Ambient Fan", "Engine room ambient fan relay status")
+  // );
   
-  // Fan/pump control loop - runs every 500ms
-  app.onRepeat(500, [coolant_fan_output, coolant_pump_output, ambient_fan_output]() {
-    
-    // =========================================================
-    // COOLANT FAN - Controlled by coolant temperature
-    // =========================================================
-    if (coolant_temperature > fanpump_config->get_coolant_fan_on_temp()) {
-      coolant_fan_state = true;
-    } else if (coolant_temperature < fanpump_config->get_coolant_fan_off_temp()) {
-      coolant_fan_state = false;
-    }
-    // Hysteresis: state remains unchanged between on/off thresholds
-    
-    digitalWrite(CoolantFanControl, coolant_fan_state ? HIGH : LOW);
-    coolant_fan_output->set(coolant_fan_state);
-    
+  // =========================================================
+  // COOLANT FAN - Controlled by coolant temperature
+  // =========================================================
+  
+  // Initialize hysteresis transform for coolant fan control
+  coolant_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
+       303.15f,   // lower threshold (OFF) in Kelvin
+       305.15f,   // upper threshold (ON) in Kelvin
+       false,   // low_output
+       true,    // high_output
+       "/coolant_fan_control"
+  );
+
+  temp_sensor_coolant->connect_to(coolant_fan_hyst)->connect_to(coolant_fan_cmd);
+  ConfigItem(coolant_fan_hyst.get());
+   
     // =========================================================
     // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
     // =========================================================
-    float max_temp1 = (portMotor_temperature > starboardMotor_temperature) ? portMotor_temperature : starboardMotor_temperature;
-    float max_temp2 = (portController_temperature > starboardController_temperature) ? portController_temperature : starboardController_temperature;
-    float max_motor_controller_temp = (max_temp1 > max_temp2) ? max_temp1 : max_temp2;
-    
-    if (max_motor_controller_temp > fanpump_config->get_coolant_pump_on_temp()) {
-      coolant_pump_state = true;
-    } else if (max_motor_controller_temp < fanpump_config->get_coolant_pump_off_temp()) {
-      coolant_pump_state = false;
-    }
-    // Hysteresis: state remains unchanged between thresholds
-    
-    digitalWrite(CoolantPumpControl, coolant_pump_state ? HIGH : LOW);
-    coolant_pump_output->set(coolant_pump_state);
-    
+
     // =========================================================
     // AMBIENT FAN - Controlled by engine room temperature
     // =========================================================
-    if (engineroom_temperature > fanpump_config->get_ambient_fan_on_temp()) {
-      ambient_fan_state = true;
-    } else if (engineroom_temperature < fanpump_config->get_ambient_fan_off_temp()) {
-      ambient_fan_state = false;
-    }
-    // Hysteresis: state remains unchanged between on/off thresholds
-    
-    digitalWrite(AmbientFanControl, ambient_fan_state ? HIGH : LOW);
-    ambient_fan_output->set(ambient_fan_state);
-    
-    // Debug logging
-    debugD("Fans/Pump: Coolant Fan=%d (%.1f°C), Pump=%d (Max=%.1f°C), Ambient Fan=%d (%.1f°C)",
-           coolant_fan_state, coolant_temperature,
-           coolant_pump_state, max_motor_controller_temp,
-           ambient_fan_state, engineroom_temperature);
-  });
-}
+} 
 void setupShaftRpm(void) {
   // Shaft RPM monitoring - reads pulses from propeller speed sensor via interrupt
   // Updates shaft frequency based on pulse intervals
@@ -664,34 +621,118 @@ void setupTempSensors(void) {
   // Temperature sensors setup - 6 sensors with configuration data in WebUI
   // OneWire temperature sensors on pin 37
   
-  auto* dts = new DallasTemperatureSensors(OneWirePin);
+  // Give the OneWire sensor(s) time to stabilize and be ready before bus scan
+  // Sensor power-up and response time is critical for proper discovery
+  debugI("Initializing OneWire bus on pin %d, waiting for sensor stabilization...", OneWirePin);
+  delay(1000);
   
-  auto* temp_sensor_portMotor =
-      new OneWireTemperature(dts, 2000, "/2_oneWire/portMotorTemp");
-  auto* temp_sensor_starboardMotor =
-      new OneWireTemperature(dts, 2000, "/2_oneWire/starboardMotorTemp");
-  auto* temp_sensor_portController =
-      new OneWireTemperature(dts, 2000, "/2_oneWire/portControllerTemp");
-  auto* temp_sensor_starboardController =
-      new OneWireTemperature(dts, 2000, "/2_oneWire/starboardControllerTemp");
-  auto* temp_sensor_engineRoom =
-      new OneWireTemperature(dts, 2000, "/2_oneWire/EngineRoomTemp");
-  auto* temp_sensor_coolant =
-      new OneWireTemperature(dts, 2000, "/2_oneWire/CoolantTemp");
+  // Initialize OneWire sensors AFTER sensesp_app is created in setup()
+  dts = new DallasTemperatureSensors(OneWirePin);
+  temp_sensor_portMotor = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/portMotorTemp");
+  temp_sensor_starboardMotor = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/starboardMotorTemp");
+  temp_sensor_portController = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/portControllerTemp");
+  temp_sensor_starboardController = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/starboardControllerTemp");
+  temp_sensor_engineRoom = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/EngineRoomTemp");
+  temp_sensor_coolant = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/CoolantTemp");
+    
+  debugI("OneWire sensors detected on pin %d", OneWirePin);
   
-  // Connect temperature sensors to Signal K outputs
-  temp_sensor_portMotor->connect_to(new SKOutputFloat("propulsion.port.temperature"));
-  temp_sensor_starboardMotor->connect_to(new SKOutputFloat("propulsion.starboard.temperature"));
-  temp_sensor_portController->connect_to(new SKOutputFloat("electrical.controllers.port.temperature"));
-  temp_sensor_starboardController->connect_to(new SKOutputFloat("electrical.controllers.starboard.temperature"));
-  temp_sensor_engineRoom->connect_to(new SKOutputFloat("propulsion.engineRoom.temperature"));
-  temp_sensor_coolant->connect_to(new SKOutputFloat("propulsion.coolant.temperature"));
+  // Config Items for the UI
+  ConfigItem(temp_sensor_portMotor)
+    ->set_title("Port Motor Temperature Sensor")
+    ->set_description("Temperature sensor for the port motor.")
+    ->set_sort_order(100);
+  ConfigItem(temp_sensor_starboardMotor)
+    ->set_title("Starboard Motor Temperature Sensor")
+    ->set_description("Temperature sensor for the starboard motor.")
+    ->set_sort_order(101);
+  ConfigItem(temp_sensor_portController)
+    ->set_title("Port Controller Temperature Sensor")
+    ->set_description("Temperature sensor for the port motor controller.")
+    ->set_sort_order(102);
+  ConfigItem(temp_sensor_starboardController)
+    ->set_title("Starboard Controller Temperature Sensor")
+    ->set_description("Temperature sensor for the starboard motor controller.")
+    ->set_sort_order(103);
+  ConfigItem(temp_sensor_engineRoom)
+    ->set_title("Engine Room Temperature Sensor")
+    ->set_description("Temperature sensor for the engine room ambient temperature.")
+    ->set_sort_order(104);
+  ConfigItem(temp_sensor_coolant)
+    ->set_title("Coolant Temperature Sensor")
+    ->set_description("Temperature sensor for the motor coolant temperature.")
+    ->set_sort_order(105);
+
+
+  // Connect temperature sensors to global variables and Signal K outputs
+  // Create Signal K outputs
+  auto* port_motor_sk = new SKOutputFloat("propulsion.port.temperature");
+  auto* starboard_motor_sk = new SKOutputFloat("propulsion.starboard.temperature");
+  auto* port_ctrl_sk = new SKOutputFloat("electrical.controllers.port.temperature");
+  auto* starboard_ctrl_sk = new SKOutputFloat("electrical.controllers.starboard.temperature");
+  auto* engine_room_sk = new SKOutputFloat("propulsion.engineRoom.temperature");
+  auto* coolant_sk = new SKOutputFloat("propulsion.coolant.temperature");
+  
+  // Port Motor Temperature
+  temp_sensor_portMotor->connect_to(
+      new LambdaConsumer<float>([port_motor_sk](const float& temp) {
+        float celsius = temp - 273.15f;
+        portMotor_temperature = celsius;
+        sDisplayData.Port.MotorTemp = (int)celsius;
+        port_motor_sk->set(temp);
+      })
+  );
+  
+  // Starboard Motor Temperature
+  temp_sensor_starboardMotor->connect_to(
+      new LambdaConsumer<float>([starboard_motor_sk](const float& temp) {
+        float celsius = temp - 273.15f;
+        starboardMotor_temperature = celsius;
+        sDisplayData.Starboard.MotorTemp = (int)celsius;
+        starboard_motor_sk->set(temp);
+      })
+  );
+  
+  // Port Controller Temperature
+  temp_sensor_portController->connect_to(
+      new LambdaConsumer<float>([port_ctrl_sk](const float& temp) {
+        float celsius = temp - 273.15f;
+        portController_temperature = celsius;
+        sDisplayData.Port.ControllerTemp = (int)celsius;
+        port_ctrl_sk->set(temp);
+      })
+  );
+  
+  // Starboard Controller Temperature
+  temp_sensor_starboardController->connect_to(
+      new LambdaConsumer<float>([starboard_ctrl_sk](const float& temp) {
+        float celsius = temp - 273.15f;
+        starboardController_temperature = celsius;
+        sDisplayData.Starboard.ControllerTemp = (int)celsius;
+        starboard_ctrl_sk->set(temp);
+      })
+  );
+  
+  // Engine Room Temperature
+  temp_sensor_engineRoom->connect_to(
+      new LambdaConsumer<float>([engine_room_sk](const float& temp) {
+        float celsius = temp - 273.15f;
+        engineroom_temperature = celsius;
+        sDisplayData.InletTemp = (int)celsius;
+        engine_room_sk->set(temp);
+      })
+  );
+  
+  // Coolant Temperature
+  temp_sensor_coolant->connect_to(
+      new LambdaConsumer<float>([coolant_sk](const float& temp) {
+        float celsius = temp - 273.15f;
+        coolant_temperature = celsius;
+        sDisplayData.OutletTemp = (int)celsius;
+        coolant_sk->set(temp);
+      })
+  );
 }
-
-// =========================================================
-// THROTTLE CONTROL - Single ADC input to both motors
-// =========================================================
-
 void setupThrottle(void) {
   // Initialize persistent throttle configuration
   throttle_config = new ThrottleConfig("/throttle_config");
@@ -728,7 +769,7 @@ void setupThrottle(void) {
     // Send to Starboard motor
     myKerCan.McuStarboard.SendCommand(target_current, 0, 0);
     
-    debugD("ADC Throttle: %.1f%% -> Current: %d A", throttle_percent, target_current);
+    //debugD("ADC Throttle: %.1f%% -> Current: %d A", throttle_percent, target_current);
   });
   
   // =========================================================
@@ -764,7 +805,7 @@ void setupThrottle(void) {
     if (starboard_throttle_percent < 0.0f) starboard_throttle_percent = 0.0f;
     starboard_throttle_fb->set(starboard_throttle_percent);
     
-    debugD("Port throttle: %.0f%% | Starboard throttle: %.0f%%", 
-           port_throttle_percent, starboard_throttle_percent);
+    //debugD("Port throttle: %.0f%% | Starboard throttle: %.0f%%", 
+    //       port_throttle_percent, starboard_throttle_percent);
   });
 }
