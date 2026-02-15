@@ -2,15 +2,15 @@
 
 ezkontrolVCU::ezkontrolVCU() {}
 
-bool ezkontrolVCU::begin(TwaiCAN* myESP32CAN, uint8_t _mcuID) {
+bool ezkontrolVCU::begin(TwaiCAN* _myESP32CAN, uint8_t _mcuID) {
   mcuID = _mcuID;
-  myESP32CAN = myESP32CAN;
+  myESP32CAN = _myESP32CAN;  // Fixed: was shadowing member variable
   return true;
 }
 bool ezkontrolVCU::checkFrame(CanFrame _rxFrame) {
   bool ret = false;
   if (GetPS(_rxFrame) == vcuID) {
-    Serial.printf("ezkontrolVCU: CAN frame received from %2d\n",
+    debugD("ezkontrolVCU: CAN frame received from %2d\n",
                   GetSA(_rxFrame));
     // Check if it is a handshake message
     if ((_rxFrame.data[0] == 0x55) && (_rxFrame.data[1] == 0x55) &&
@@ -18,7 +18,7 @@ bool ezkontrolVCU::checkFrame(CanFrame _rxFrame) {
         (_rxFrame.data[4] == 0x55) && (_rxFrame.data[5] == 0x55) &&
         (_rxFrame.data[6] == 0x55) && (_rxFrame.data[7] == 0x55)) {
       SendSyncReply(mcuID);
-      Serial.println("CAN SYNC received from MCU");
+      debugD("CAN SYNC received from MCU");
       sCurrentCanState = STATE_SYNCED;
       CanRxMsg++;
       ret = true;
@@ -92,13 +92,17 @@ bool ezkontrolVCU::SendCommand(int16_t TargetPhaseCurrent, int16_t TargetSpeed,
     TxFrame.data[6] = 0xAA;
     TxFrame.data[7] = LifeSignal;
     // Accepts both pointers and references
-    Serial.printf("CAN writing to DA=0x%02X from SA=0x%02X.\n", mcuID, vcuID);
+    debugD("CAN writing to MCU 0x%02X: Current=%d Speed=%d Mode=%d\n", mcuID, TargetPhaseCurrent, TargetSpeed, ControlMode);
     if (myESP32CAN->writeFrame(TxFrame))  // timeout defaults to 1 ms
     {
-      Serial.printf("CAN written to DA=0x%02X from SA=0x%02X.\n", mcuID, vcuID);
+      debugD("CAN command sent to MCU 0x%02X (LifeSignal=%d)\n", mcuID, LifeSignal);
       LifeSignal++;
       ret = true;
+    } else {
+      debugW("CAN TX failed to MCU 0x%02X\n", mcuID);
     }
+  } else {
+    debugW("MCU 0x%02X not synced (state=%d), waiting for SYNC handshake...\n", mcuID, sCurrentCanState);
   }
   return ret;
 }

@@ -3,15 +3,19 @@
 ker_can::ker_can(uint8_t _mcu_port, uint8_t _mcu_starboard) {
   mcuPort = _mcu_port;
   mcuStarboard = _mcu_starboard;
-  McuPort.begin(&ESP32Can, mcuPort);
-  McuStarboard.begin(&ESP32Can, mcuStarboard);
+    Serial.println("CAN bus constructor!");
+  //McuPort.begin(&ESP32Can, mcuPort);
+ // McuStarboard.begin(&ESP32Can, mcuStarboard);
 }
 ker_can::~ker_can() {}
 
 bool ker_can::begin(uint8_t _txPin, uint8_t _rxPin, uint8_t _clkPin,
                     uint8_t _busoffPin) {
   bool ret = false;
-  Serial.printf("CAN Init Status %d\n", ESP32Can.getInit());
+  McuPort.begin(&ESP32Can, mcuPort);
+  McuStarboard.begin(&ESP32Can, mcuStarboard);
+
+  debugD("CAN Init Status %d\n", ESP32Can.getInit());
   ESP32Can.setPins(_txPin, _rxPin, _clkPin, _busoffPin);
   ESP32Can.setRxQueueSize(8);
   ESP32Can.setTxQueueSize(8);
@@ -19,19 +23,22 @@ bool ker_can::begin(uint8_t _txPin, uint8_t _rxPin, uint8_t _clkPin,
 
   //if (ESP32Can.begin(ESP32Can.convertSpeed(250),_txPin,_rxPin,-1,-1,8,8,NULL,NULL,NULL)) {
   if (ESP32Can.begin()) {
-    Serial.println("CAN bus started!");
+    debugD("CAN bus started!");
     ret = true;
   } else {
-    Serial.println("CAN bus failed!");
+    debugD("CAN bus failed!");
   }
   return ret;
 }
 bool ker_can::checkReceiver(void) {
   bool ret = false;
   if (ESP32Can.readFrame(&rxFrame, 1000)) {
-    Serial.printf("Received frame: %08X  \r\n", rxFrame.identifier);
-    Serial.printf("SA = %02X, DA = %02X, PF = %02X\r\n", ezkontrolVCU::GetSA(rxFrame),ezkontrolVCU::GetPS(rxFrame),ezkontrolVCU::GetPF(rxFrame));
-    Serial.printf("McuPort=%02X, McuStarboard=%02X\n",McuPort.getID(),McuStarboard.getID());
+    debugD("Received frame: %08X  \r\n", rxFrame.identifier);
+    debugD("SA = %02X, DA = %02X, PF = %02X\r\n", ezkontrolVCU::GetSA(rxFrame),ezkontrolVCU::GetPS(rxFrame),ezkontrolVCU::GetPF(rxFrame));
+    debugD("Data: %02X %02X %02X %02X %02X %02X %02X %02X\r\n", 
+           rxFrame.data[0], rxFrame.data[1], rxFrame.data[2], rxFrame.data[3],
+           rxFrame.data[4], rxFrame.data[5], rxFrame.data[6], rxFrame.data[7]);
+    debugD("McuPort=%02X, McuStarboard=%02X\n",McuPort.getID(),McuStarboard.getID());
     if (ezkontrolVCU::GetSA(rxFrame) == McuPort.getID()) {
       ret = McuPort.checkFrame(rxFrame);
     }

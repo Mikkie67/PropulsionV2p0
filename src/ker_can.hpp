@@ -2,6 +2,7 @@
 #define _KER_CAN_
 #include "ESP32-TWAI-CAN.hpp"
 #include "ezkontrolVCU.hpp"
+#include "sensesp.h"
 
 class ker_can {
  private:

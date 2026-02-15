@@ -28,6 +28,7 @@
 #include "sensesp_app_builder.h"
 #include "sensesp_onewire/onewire_temperature.h"
 #include <sensesp/transforms/hysteresis.h>
+#include "sensesp/ui/ui_controls.h"
 
 using namespace sensesp;
 using namespace sensesp::onewire;
@@ -90,13 +91,34 @@ ker_can myKerCan(239, 240);
 // -----------------------------------------------------------------------------
 //  Analog (Throttle)
 // -----------------------------------------------------------------------------
-const uint8_t kAnalogInputPin = 1;  // KerProp.ADC_IN1
+const uint8_t kAnalogInputPin = 2;  // KerProp.ADC_IN2 (GPIO2)
 // Define how often (in milliseconds) new samples are acquired
 const unsigned int kAnalogInputReadInterval = 500;
 // Define the produced value at the maximum input voltage (3.3V).
 // A value of 3.3 gives output of 100%
 // TODO I will make use of a lookup table as well as interpolating in the table
 const float kAnalogInputScale = 100;
+// ADC reference voltage in volts
+float adc_reference_voltage = 5.0f;
+// ADC maximum register value (12-bit)
+const uint16_t ADC_MAX_VALUE = 4095;
+// ADC midpoint value for bidirectional throttle (neutral position)
+float adc_midpoint_voltage = 2.5f;
+// Hysteresis band around neutral position (in volts) - throttle remains at 0% within this range
+float adc_neutral_hysteresis = 0.1f;
+// Throttle percentage threshold below which motor enters idle mode
+float throttle_idle_threshold = 10.0f;  // % (absolute value)
+// Throttle percentage to use when in idle mode
+float throttle_idle_percent = 10.0f;  // %
+// Maximum phase current for motor control (in Amps)
+float max_phase_current = 250.0f;  // A
+
+// NumberConfig objects for persistent storage and UI configuration
+NumberConfig* config_adc_reference_voltage = nullptr;
+NumberConfig* config_adc_neutral_hysteresis = nullptr;
+NumberConfig* config_throttle_idle_threshold = nullptr;
+NumberConfig* config_throttle_idle_percent = nullptr;
+NumberConfig* config_max_phase_current = nullptr;
 // -----------------------------------------------------------------------------
 //  LCD
 // -----------------------------------------------------------------------------
@@ -228,53 +250,10 @@ auto spare3_relay_cmd = std::make_shared<sensesp::LambdaConsumer<bool>>(
   }
 );
 
- 
+  
 // =========================================================
-// THROTTLE CONFIGURATION CLASS - Persistent storage via SPIFFS
+// Global throttle configuration instance - removed, using constants
 // =========================================================
-class ThrottleConfig : public FileSystemSaveable {
- private:
-  float max_phase_current_ = 250.0f;
-  unsigned long can_command_interval_ = 500;
-  
- public:
-  ThrottleConfig(String config_path = "")
-      : FileSystemSaveable(config_path) {
-    this->load();
-  }
-  
-  float get_max_phase_current() const { return max_phase_current_; }
-  void set_max_phase_current(float current) {
-    max_phase_current_ = current;
-    this->save();
-  }
-  
-  unsigned long get_can_command_interval() const { return can_command_interval_; }
-  void set_can_command_interval(unsigned long interval) {
-    can_command_interval_ = interval;
-    this->save();
-  }
-  
-  virtual bool to_json(JsonObject& root) override {
-    root["max_phase_current"] = max_phase_current_;
-    root["can_command_interval"] = can_command_interval_;
-    return true;
-  }
-  
-  virtual bool from_json(const JsonObject& config) override {
-    if (!config["max_phase_current"].is<float>()) {
-      return false;
-    }
-    max_phase_current_ = config["max_phase_current"].as<float>();
-    if (config["can_command_interval"].is<unsigned long>()) {
-      can_command_interval_ = config["can_command_interval"].as<unsigned long>();
-    }
-    return true;
-  }
-};
-
-// Global throttle configuration instance
-ThrottleConfig* throttle_config = nullptr;
 // TODO remove?? sDisplayData_t sDisplayData = {0};
 uint8_t state_index = 0;
 
@@ -457,14 +436,13 @@ void setupLcdDisplay(void) {
   createDynamicElements(&tft, sDisplayData);
   app.onRepeat(1000, [&]() {
     sDisplayData.UpTime++;
-    debugI("Display update: AmbientTemp=%d, CoolantTemp=%d", sDisplayData.AmbientTemp, sDisplayData.CoolantTemp);
     createDynamicElements(&tft, sDisplayData);
   });
   // TODO testLcd();
 }
 void setupKerPropCanBus(void) {
   // TEMPORARILY DISABLED FOR DEBUGGING GPIO 238 ERROR
-  /*
+  
   // -------------------------------------------------------------
   // CAN BUS
   // -------------------------------------------------------------
@@ -475,9 +453,9 @@ void setupKerPropCanBus(void) {
   // Send the CAN control command when in a state later than synced
   app.onRepeat(50, []() { 
     myKerCan.SendCommands(120, 100, 3);
-    Serial.println("CAN Command sent");
+    debugD("CAN Command sent");
      });
-  */
+  
 }
 void setupBms(void) {
   // -------------------------------------------------------------
@@ -589,7 +567,7 @@ void setupFansPumps(void) {
   ConfigItem(coolant_fan_hyst.get())
     ->set_title("Coolant Fan Control")
     ->set_description("Hysteresis control with ON/OFF thresholds in Kelvin (add 273.15 to convert from Celsius).")
-    ->set_sort_order(200);
+    ->set_sort_order(100);
    
   // =========================================================
   // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
@@ -608,7 +586,7 @@ void setupFansPumps(void) {
   ConfigItem(coolant_pump_hyst.get())
     ->set_title("Coolant Pump Control")
     ->set_description("Hysteresis control based on max motor/controller temperature. ON/OFF thresholds in Kelvin (add 273.15 to convert from Celsius).")
-    ->set_sort_order(201);
+    ->set_sort_order(101);
   
   // Periodic feedback of max motor/controller temp to hysteresis
   app.onRepeat(1000, [&]() {
@@ -642,7 +620,7 @@ void setupFansPumps(void) {
   ConfigItem(ambient_fan_hyst.get())
     ->set_title("Ambient Fan Control")
     ->set_description("Hysteresis control for engine room ambient temperature cooling.")
-    ->set_sort_order(202);
+    ->set_sort_order(102);
 } 
 void setupShaftRpm(void) {
   // Shaft RPM monitoring - reads pulses from propeller speed sensor via interrupt
@@ -720,27 +698,27 @@ void setupTempSensors(void) {
   ConfigItem(temp_sensor_portMotor)
     ->set_title("Port Motor Temperature Sensor")
     ->set_description("Temperature sensor for the port motor.")
-    ->set_sort_order(100);
+    ->set_sort_order(200);
   ConfigItem(temp_sensor_starboardMotor)
     ->set_title("Starboard Motor Temperature Sensor")
     ->set_description("Temperature sensor for the starboard motor.")
-    ->set_sort_order(101);
+    ->set_sort_order(201);
   ConfigItem(temp_sensor_portController)
     ->set_title("Port Controller Temperature Sensor")
     ->set_description("Temperature sensor for the port motor controller.")
-    ->set_sort_order(102);
+    ->set_sort_order(202);
   ConfigItem(temp_sensor_starboardController)
     ->set_title("Starboard Controller Temperature Sensor")
     ->set_description("Temperature sensor for the starboard motor controller.")
-    ->set_sort_order(103);
+    ->set_sort_order(203);
   ConfigItem(temp_sensor_engineRoom)
     ->set_title("Engine Room Temperature Sensor")
     ->set_description("Temperature sensor for the engine room ambient temperature.")
-    ->set_sort_order(104);
+    ->set_sort_order(204);
   ConfigItem(temp_sensor_coolant)
     ->set_title("Coolant Temperature Sensor")
     ->set_description("Temperature sensor for the motor coolant temperature.")
-    ->set_sort_order(105);
+    ->set_sort_order(205);
 
 
   // Connect temperature sensors to global variables and Signal K outputs
@@ -813,11 +791,29 @@ void setupTempSensors(void) {
   );
 }
 void setupThrottle(void) {
-  // Initialize persistent throttle configuration
-  throttle_config = new ThrottleConfig("/throttle_config");
-  
   // Configure ADC for analog throttle reading
   analogSetAttenuation(ADC_11db);  // Full range 0-3.3V
+  
+  // Create String variables for config paths
+  String path_adc_ref = "/throttle/adc_reference_voltage";
+  String path_adc_hyst = "/throttle/adc_neutral_hysteresis";
+  String path_idle_thresh = "/throttle/idle_threshold";
+  String path_idle_pct = "/throttle/idle_percent";
+  String path_max_current = "/throttle/max_phase_current";
+  
+  // Initialize NumberConfig for throttle parameters
+  config_adc_reference_voltage = new NumberConfig(adc_reference_voltage, path_adc_ref);
+  config_adc_neutral_hysteresis = new NumberConfig(adc_neutral_hysteresis, path_adc_hyst);
+  config_throttle_idle_threshold = new NumberConfig(throttle_idle_threshold, path_idle_thresh);
+  config_throttle_idle_percent = new NumberConfig(throttle_idle_percent, path_idle_pct);
+  config_max_phase_current = new NumberConfig(max_phase_current, path_max_current);
+  
+  // Register NumberConfig items in the UI
+  ConfigItem(config_adc_reference_voltage);
+  ConfigItem(config_adc_neutral_hysteresis);
+  ConfigItem(config_throttle_idle_threshold);
+  ConfigItem(config_throttle_idle_percent);
+  ConfigItem(config_max_phase_current);
   
   // Create Signal K output for ADC throttle input
   auto* adc_throttle_output = new SKOutputNumeric<float>(
@@ -826,29 +822,60 @@ void setupThrottle(void) {
       new SKMetadata("ratio", "ADC Throttle", "Throttle lever position from ADC potentiometer (0-100%)")
   );
   
+  // Update adc_midpoint_voltage based on current reference voltage
+  adc_midpoint_voltage = adc_reference_voltage / 2.0f;
+  
   // Read ADC throttle and send commands to both motors
-  app.onRepeat(throttle_config->get_can_command_interval(), [adc_throttle_output]() {
-    // Read ADC throttle in millivolts (0-3300mV)
-    uint16_t raw_mv = analogReadMilliVolts(kAnalogInputPin);
-    // Convert to percentage (0-100%)
-    float throttle_percent = (raw_mv / 3300.0f) * 100.0f;
-    // Clamp to 0-100%
+  app.onRepeat(500, [adc_throttle_output]() {
+    // Read ADC throttle (12-bit: 0-4095 maps to 0-5.0V reference)
+    uint16_t raw_adc = analogRead(kAnalogInputPin);
+    // Calculate voltage from raw ADC value
+    float voltage = (raw_adc / (float)ADC_MAX_VALUE) * adc_reference_voltage;
+    
+    // Update midpoint based on current reference voltage
+    adc_midpoint_voltage = adc_reference_voltage / 2.0f;
+    
+    // Calculate bidirectional throttle percentage with neutral hysteresis
+    float throttle_percent = 0.0f;
+    float neutral_lower = adc_midpoint_voltage - (adc_neutral_hysteresis / 2.0f);
+    float neutral_upper = adc_midpoint_voltage + (adc_neutral_hysteresis / 2.0f);
+    
+    if (voltage < neutral_lower) {
+      // Reverse direction (below neutral) - negative throttle
+      // Maps neutral_lower = 0%, 0V = -100%
+      throttle_percent = ((neutral_lower - voltage) / neutral_lower) * -100.0f;
+    } else if (voltage > neutral_upper) {
+      // Forward direction (above neutral) - positive throttle
+      // Maps neutral_upper = 0%, adc_reference_voltage = 100%
+      throttle_percent = ((voltage - neutral_upper) / (adc_reference_voltage - neutral_upper)) * 100.0f;
+    }
+    // else: within neutral hysteresis band, throttle_percent remains 0.0f
+    
+    // Clamp to -100 to +100
     if (throttle_percent > 100.0f) throttle_percent = 100.0f;
-    if (throttle_percent < 0.0f) throttle_percent = 0.0f;
+    if (throttle_percent < -100.0f) throttle_percent = -100.0f;
+    
+    // Apply idle mode: if throttle is between -IDLE_THRESHOLD and +IDLE_THRESHOLD, set to idle throttle
+    if (throttle_percent > 0.0f && throttle_percent < throttle_idle_threshold) {
+      throttle_percent = throttle_idle_percent;
+    } else if (throttle_percent < 0.0f && throttle_percent > -throttle_idle_threshold) {
+      throttle_percent = -throttle_idle_percent;
+    }
     
     // Output to Signal K
     adc_throttle_output->set(throttle_percent);
     
     // Send throttle command to both motors (Port and Starboard)
-    // Convert throttle percentage to target current using persistent config
-    int16_t target_current = (int16_t)((throttle_percent / 100.0f) * throttle_config->get_max_phase_current());
+    // Convert throttle percentage to target current using max phase current variable
+    int16_t target_current = (int16_t)((throttle_percent / 100.0f) * max_phase_current);
     
     // Send to Port motor
     myKerCan.McuPort.SendCommand(target_current, 0, 0);
     // Send to Starboard motor
     myKerCan.McuStarboard.SendCommand(target_current, 0, 0);
     
-    //debugD("ADC Throttle: %.1f%% -> Current: %d A", throttle_percent, target_current);
+    // Debug: show raw ADC value (12-bit: 0-4095), calculated voltage, and throttle
+    debugD("ADC pin=%d raw=0x%04X (%d/4095) voltage=%.2fV Throttle: %.1f%% -> Current: %d A", kAnalogInputPin, raw_adc, raw_adc, voltage, throttle_percent, target_current);
   });
   
   // =========================================================

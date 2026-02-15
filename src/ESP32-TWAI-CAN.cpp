@@ -95,7 +95,8 @@ bool TwaiCAN::begin(TwaiSpeed twaiSpeed,
         setRxQueueSize(rxQueue);
         init = true;
 
-        twai_general_config_t g_config = {.mode = TWAI_MODE_NO_ACK, .tx_io = (gpio_num_t) tx, .rx_io = (gpio_num_t) rx, \
+        // Changed from TWAI_MODE_NO_ACK to TWAI_MODE_NORMAL
+        twai_general_config_t g_config = {.mode = TWAI_MODE_NORMAL, .tx_io = (gpio_num_t) tx, .rx_io = (gpio_num_t) rx, \
                                                 .clkout_io = (gpio_num_t)clk_out, .bus_off_io = (gpio_num_t)bus_off,      \
                                                 .tx_queue_len = txQueueSize, .rx_queue_len = rxQueueSize,       \
                                                 .alerts_enabled = TWAI_ALERT_NONE,  .clkout_divider = 0,        \

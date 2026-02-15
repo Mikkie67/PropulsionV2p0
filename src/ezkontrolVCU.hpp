@@ -2,7 +2,7 @@
 #define EZ_KONTROL_VCU
 
 #include "ESP32-TWAI-CAN.hpp"
-
+#include "sensesp.h"
 typedef enum {
   STATE_CLOSED = 0,
   STATE_CONNECTED = 1,
