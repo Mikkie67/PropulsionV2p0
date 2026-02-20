@@ -31,7 +31,6 @@ MODBUS over serial line specification and implementation guide V1.02
 
 #include "ModbusMessage.h"
 #include "HardwareSerial.h"
-#include "sensesp.h"
 
 using namespace esp32ModbusRTUInternals;  // NOLINT
 
@@ -126,8 +125,7 @@ uint8_t ModbusMessage::getSize() {
 }
 
 void ModbusMessage::add(uint8_t value) {
-  // Allow 2 extra bytes for CRC even if we exceed the allocated length
-  if (_index < _length + 2) _buffer[_index++] = value;
+  if (_index < _length) _buffer[_index++] = value;
 }
 
 ModbusRequest::ModbusRequest(uint8_t length) :
@@ -253,7 +251,7 @@ size_t ModbusRequest16::responseLength() {
 }
 
 ModbusResponse::ModbusResponse(uint8_t length, ModbusRequest* request) :
-  ModbusMessage(length + 2),  // Allocate 2 extra bytes for CRC timing tolerance
+  ModbusMessage(length),
   _request(request),
   _error(esp32Modbus::SUCCES) {}
 
@@ -261,37 +259,20 @@ bool ModbusResponse::isComplete() {
   if (_buffer[1] > 0x80 && _index == 5) {  // 5: slaveAddress(1), errorCode(1), CRC(2) + indexed
     return true;
   }
-  // Check if we have at least the expected response length
-  if (_index >= _request->responseLength()) return true;
+  if (_index == _request->responseLength()) return true;
   return false;
 }
 
 bool ModbusResponse::isSucces() {
-  debugD("[MODBUS] isSucces() called - buffer index = %d, expected length = %d", _index, _request->responseLength());
   if (!isComplete()) {
     _error = esp32Modbus::TIMEOUT;
   } else if (_buffer[1] > 0x80) {
     _error = static_cast<esp32Modbus::Error>(_buffer[2]);
+  } else if (!checkCRC()) {
+    _error = esp32Modbus::CRC_ERROR;
+  // TODO(bertmelis): add other checks
   } else {
-    // DEBUG: Print received bytes before CRC check
-    debugD("[MODBUS] Buffer before CRC check (buffer index=%d): ", _index);
-    for (int i = 0; i < _index && i < 50; i++) {
-      debugD("%02x ", _buffer[i]);
-    }
-    debugD("");
-    
-    if (!checkCRC()) {
-      _error = esp32Modbus::CRC_ERROR;
-      size_t crcDataLen = _index - 2;  // All bytes except the last 2 CRC bytes
-      uint16_t expectedCRC = CRC16(_buffer, crcDataLen);
-      debugD("[MODBUS] CRC check failed! Expected: %02x %02x, Got: %02x %02x at positions [%d,%d]", 
-             expectedCRC & 0xFF, (expectedCRC >> 8) & 0xFF,
-             _buffer[_index - 2], _buffer[_index - 1], _index - 2, _index - 1);
-    // TODO(bertmelis): add other checks
-    } else {
-      _error = esp32Modbus::SUCCES;
-      debugD("[MODBUS] CRC check passed!");
-    }
+    _error = esp32Modbus::SUCCES;
   }
   if (_error == esp32Modbus::SUCCES) {
     return true;
@@ -301,11 +282,8 @@ bool ModbusResponse::isSucces() {
 }
 
 bool ModbusResponse::checkCRC() {
-  // CRC is calculated over all bytes except the last 2 (the CRC bytes themselves)
-  // _index contains the total number of bytes received (0-indexed count is _index - 1)
-  size_t crcDataLen = _index - 2;  // All bytes except the CRC bytes
-  uint16_t CRC = CRC16(_buffer, crcDataLen);
-  if (low(CRC) == _buffer[_index - 2] && high(CRC) == _buffer[_index - 1]) {
+  uint16_t CRC = CRC16(_buffer, _length - 2);
+  if (low(CRC) == _buffer[_length - 2] && high(CRC) == _buffer[_length -1]) {
     return true;
   } else {
     return false;
