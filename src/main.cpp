@@ -272,7 +272,6 @@ ICACHE_RAM_ATTR void isr() {
   lastTime = micros();
   updateRpm = true;
 }
-// display_ssd1306 *myDisplay;
 
 // ----------------------------------------------------------
 // The setup function performs one-time application initialization.
@@ -319,33 +318,15 @@ void setup() {
   
   // -------------------------------------------------------------
   // KEROSHEBA PROPULSION ITEMS
-  debugD("Starting setupThrottle()");
   setupThrottle();
-  debugD("setupThrottle() complete");
-  
-  debugD("Starting setupLcdDisplay()");
   setupLcdDisplay();
-  debugD("setupLcdDisplay() complete");
-  
-  debugD("Starting setupKerPropCanBus()");
   setupKerPropCanBus();
-  debugD("setupKerPropCanBus() complete");
-  
- // setupBms();
-
-  debugD("Starting setupTempSensors()");
+  setupBms();
   setupTempSensors();
-  debugD("setupTempSensors() complete");
-  
-  debugD("Starting setupFansPumps()");
   setupFansPumps();
-  debugD("setupFansPumps() complete");
-  
-  debugD("Starting setupShaftRpm()");
   setupShaftRpm();
-  debugD("setupShaftRpm() complete");
-  
-  
+  debugD("setup complete");
+    
   // Start networking, SK server connections and other SensESP internals
   debugD("Starting sensesp_app->start()");
   debugD("About to call start() - SensESP HTTP server and WiFi AP should initialize here");
@@ -372,7 +353,7 @@ void setup() {
   debugD("Web server should be running on http://192.168.4.1");
   
   // Add some delay for SensESP HTTP server to fully initialize
-  delay(2000);
+  // TODO is this needed or not? delay(2000);
   debugI("Waiting complete. HTTP server should now be fully initialized.");
 }
 void loop() {
@@ -435,26 +416,22 @@ void setupLcdDisplay(void) {
   sDisplayData.ShaftRpm = -1;
   createDynamicElements(&tft, sDisplayData);
   app.onRepeat(1000, [&]() {
-    sDisplayData.UpTime++;
+    sDisplayData.UpTime = millis() / 1000;  // Use actual system time instead of counting
     createDynamicElements(&tft, sDisplayData);
   });
   // TODO testLcd();
 }
 void setupKerPropCanBus(void) {
-  // TEMPORARILY DISABLED FOR DEBUGGING GPIO 238 ERROR
-  
   // -------------------------------------------------------------
   // CAN BUS
   // -------------------------------------------------------------
   Serial.println("Starting CAN BUS");
   myKerCan.begin(CAN_TX, CAN_RX, CAN_CLK, CAN_BUS_OFF);
-  // Check the CAN bus receiver every 1ms
-  app.onRepeat(1, []() { myKerCan.checkReceiver(); });
-  // Send the CAN control command when in a state later than synced
-  app.onRepeat(50, []() { 
-    myKerCan.SendCommands(120, 100, 3);
-    debugD("CAN Command sent");
-     });
+  // Check the CAN bus receiver every 100ms
+  app.onRepeat(100, []() { myKerCan.checkReceiver(); });
+  // Send idle/neutral mode with zero current to both motors (one time only)
+  myKerCan.SendCommands(0, 0, 0);  // 0 current, 0 speed, control mode 0 (neutral/idle)
+  debugD("CAN Command sent (Idle/Neutral)");
   
 }
 void setupBms(void) {
@@ -463,7 +440,7 @@ void setupBms(void) {
   // -------------------------------------------------------------
   BMS_modbus.onData([](uint8_t serverAddress, esp32Modbus::FunctionCode fc,
                        uint16_t address, uint8_t* data, size_t length) {
-    // Serial.printf("Addr = 0x%04X\n", address);
+    Serial.printf("Addr = 0x%04X\n", address);
     switch (address) {
       case 0xD000: {
         if (serverAddress == 0x01) {
@@ -496,28 +473,41 @@ void setupBms(void) {
     }
   });
   BMS_modbus.onError([](esp32Modbus::Error error) {
-    Serial.printf("error: 0x%02x\n\n", static_cast<uint8_t>(error));
+    debugD("error: 0x%02x\n\n", static_cast<uint8_t>(error));
   });
-  Serial2.begin(19200, SERIAL_8N1, 16, 17);  // Modbus connection
+  debugD("Initializing Serial1 at 19200 baud, RX=pin 18, TX=pin 17");
+  Serial1.begin(19200, SERIAL_8N1, ModBusRxdPin, ModBusTxdPin);  // Modbus connection
+  debugD("Calling BMS_modbus.begin()");
   BMS_modbus.begin();
-  app.onRepeat(500, []() {
+  debugD("BMS_modbus initialized successfully");
+  app.onRepeat(8000, []() {
+  //debugD("Sending MOD bus read requests, state_index = %d", state_index);
     switch (state_index) {
-      case 0:
-        BMS_modbus.readHoldingRegisters(0x01, 0xD000, 0x0026);
+      case 0: {
+        bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD000, 0x0026);
+        //debugD("readHoldingRegisters(0x01, 0xD000, 0x0026) returned: %s", result ? "TRUE" : "FALSE");
         state_index++;
         break;
-      case 1:
-        BMS_modbus.readHoldingRegisters(0x01, 0xD026, 0x0019);
+      }
+      case 1: {
+        bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD026, 0x0019);
+        //debugD("readHoldingRegisters(0x01, 0xD026, 0x0019) returned: %s", result ? "TRUE" : "FALSE");
         state_index++;
         break;
-      case 2:
-        BMS_modbus.readHoldingRegisters(0x01, 0xD100, 0x0015);
+      }
+      case 2: {
+       debugD("------------------------------------> BMS_modbus sending 01 03 D1 00 00 15 BD 39 ");
+       bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD100, 0x0015);
+        debugD("readHoldingRegisters(0x01, 0xD100, 0x0015) returned: %s", result ? "TRUE" : "FALSE");
         state_index++;
         break;
-      case 3:
-        BMS_modbus.readHoldingRegisters(0x01, 0xD200, 0x0001);
+      }
+      case 3: {
+        bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD200, 0x0001);
+        //debugD("readHoldingRegisters(0x01, 0xD200, 0x0001) returned: %s", result ? "TRUE" : "FALSE");
         state_index = 0;
         break;
+      }
     }
   });
 }
@@ -525,16 +515,14 @@ void setupFansPumps(void) {
   // =========================================================
   // COOLANT FAN, PUMP AND AMBIENT FAN - Temperature controlled
   // =========================================================
-  
-  // Create digital outputs for relay control
+    // Create digital outputs for relay control
   pinMode(CoolantFanControl, OUTPUT);
   pinMode(CoolantPumpControl, OUTPUT);
   pinMode(AmbientFanControl, OUTPUT);
   pinMode(SpareControl1, OUTPUT);
   pinMode(SpareControl2, OUTPUT);
   pinMode(SpareControl3, OUTPUT);
-  
-  // Create Signal K outputs for fan/pump status monitoring
+    // Create Signal K outputs for fan/pump status monitoring
   // auto* coolant_fan_output = new SKOutputBool(
   //     "propulsion.cooling.coolantFan",
   //     new SKMetadata("", "Coolant Fan", "Coolant fan relay status")
@@ -553,8 +541,7 @@ void setupFansPumps(void) {
   // =========================================================
   // COOLANT FAN - Controlled by coolant temperature
   // =========================================================
-  
-  // Initialize hysteresis transform for coolant fan control
+    // Initialize hysteresis transform for coolant fan control
   coolant_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
        303.15f,   // lower threshold (OFF) in Kelvin (30°C)
        305.15f,   // upper threshold (ON) in Kelvin (32°C)
@@ -572,8 +559,7 @@ void setupFansPumps(void) {
   // =========================================================
   // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
   // =========================================================
-  
-  // Initialize hysteresis transform for coolant pump control using max motor/controller temp
+    // Initialize hysteresis transform for coolant pump control using max motor/controller temp
   coolant_pump_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
        313.15f,   // lower threshold (OFF) in Kelvin (40°C)
        315.15f,   // upper threshold (ON) in Kelvin (42°C)
@@ -606,8 +592,7 @@ void setupFansPumps(void) {
   // =========================================================
   // AMBIENT FAN - Controlled by engine room temperature
   // =========================================================
-  
-  // Initialize hysteresis transform for ambient fan control
+    // Initialize hysteresis transform for ambient fan control
   ambient_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(
        308.15f,   // lower threshold (OFF) in Kelvin (35°C)
        310.15f,   // upper threshold (ON) in Kelvin (37°C)
@@ -826,7 +811,7 @@ void setupThrottle(void) {
   adc_midpoint_voltage = adc_reference_voltage / 2.0f;
   
   // Read ADC throttle and send commands to both motors
-  app.onRepeat(500, [adc_throttle_output]() {
+  app.onRepeat(100, [adc_throttle_output]() {
     // Read ADC throttle (12-bit: 0-4095 maps to 0-5.0V reference)
     uint16_t raw_adc = analogRead(kAnalogInputPin);
     // Calculate voltage from raw ADC value
@@ -875,7 +860,7 @@ void setupThrottle(void) {
     myKerCan.McuStarboard.SendCommand(target_current, 0, 0);
     
     // Debug: show raw ADC value (12-bit: 0-4095), calculated voltage, and throttle
-    debugD("ADC pin=%d raw=0x%04X (%d/4095) voltage=%.2fV Throttle: %.1f%% -> Current: %d A", kAnalogInputPin, raw_adc, raw_adc, voltage, throttle_percent, target_current);
+    //ådebugD("ADC pin=%d raw=0x%04X (%d/4095) voltage=%.2fV Throttle: %.1f%% -> Current: %d A", kAnalogInputPin, raw_adc, raw_adc, voltage, throttle_percent, target_current);
   });
   
   // =========================================================

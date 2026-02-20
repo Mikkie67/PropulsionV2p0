@@ -102,7 +102,7 @@ bool ezkontrolVCU::SendCommand(int16_t TargetPhaseCurrent, int16_t TargetSpeed,
       debugW("CAN TX failed to MCU 0x%02X\n", mcuID);
     }
   } else {
-    debugW("MCU 0x%02X not synced (state=%d), waiting for SYNC handshake...\n", mcuID, sCurrentCanState);
+   // debugW("MCU 0x%02X not synced (state=%d), waiting for SYNC handshake...\n", mcuID, sCurrentCanState);
   }
   return ret;
 }

@@ -23,7 +23,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 #include "esp32ModbusRTU.h"
-
+#include "sensesp.h"
 #if defined ARDUINO_ARCH_ESP32
 
 using namespace esp32ModbusRTUInternals;  // NOLINT
@@ -46,16 +46,37 @@ esp32ModbusRTU::~esp32ModbusRTU() {
 }
 
 void esp32ModbusRTU::begin(int coreID /* = -1 */) {
+  debugD("[MODBUS] begin() called");
+  
   // If rtsPin is >=0, the RS485 adapter needs send/receive toggle
   if (_rtsPin >= 0) {
+    debugD("[MODBUS] Setting RTS pin %d to OUTPUT", _rtsPin);
     pinMode(_rtsPin, OUTPUT);
     digitalWrite(_rtsPin, LOW);
   }
+  
+  // Ensure queue is created (may have failed at global init time if RTOS wasn't ready)
+  if (_queue == nullptr) {
+    debugD("[MODBUS] Creating queue...");
+    _queue = xQueueCreate(QUEUE_SIZE, sizeof(ModbusRequest*));
+    if (_queue == nullptr) {
+      // Queue creation failed - critical error
+      debugD("[MODBUS] ERROR: Queue creation failed!");
+      return;
+    }
+  }
+  
+  debugD("[MODBUS] Setting serial pins: RX=%d, TX=%d", _rxdPin, _txdPin);
   _serial->setPins(_rxdPin, _txdPin, -1, -1);
+  
+  debugD("[MODBUS] Creating handler task...");
   xTaskCreatePinnedToCore((TaskFunction_t)&_handleConnection, "esp32ModbusRTU", 4096, this, 5, &_task, coreID >= 0 ? coreID : NULL);
+  
+  debugD("[MODBUS] Task created, setting interval");
   // silent interval is at least 3.5x character time
   _interval = 5;
   if (_interval == 0) _interval = 1;  // minimum of 1msec interval
+  debugD("[MODBUS] begin() complete, interval=%d ms", _interval);
 }
 
 bool esp32ModbusRTU::readDiscreteInputs(uint8_t slaveAddress, uint16_t address, uint16_t numberCoils) {
@@ -91,7 +112,8 @@ void esp32ModbusRTU::onError(esp32Modbus::MBRTUOnError handler) {
 }
 
 bool esp32ModbusRTU::_addToQueue(ModbusRequest* request) {
-  if (!request) {
+  if (!request || !_queue) {
+    if (request) delete request;
     return false;
   } else if (xQueueSend(_queue, reinterpret_cast<void*>(&request), (TickType_t)0) != pdPASS) {
     delete request;
@@ -102,11 +124,12 @@ bool esp32ModbusRTU::_addToQueue(ModbusRequest* request) {
 }
 
 void esp32ModbusRTU::_handleConnection(esp32ModbusRTU* instance) {
+  debugD("[MODBUS] Handler task started");
   while (1) {
     ModbusRequest* request;
     if (pdTRUE == xQueueReceive(instance->_queue, &request, portMAX_DELAY)) {  // block and wait for queued item
-       instance->_send(request->getMessage(), request->getSize());
-      ModbusResponse* response = instance->_receive(request);
+      instance->_send(request->getMessage(), request->getSize());
+       ModbusResponse* response = instance->_receive(request);
       if (response->isSucces()) {
         if (instance->_onData) instance->_onData(response->getSlaveAddress(), response->getFunctionCode(), request->getAddress(), response->getData(), response->getByteCount());
        } else {
@@ -119,13 +142,23 @@ void esp32ModbusRTU::_handleConnection(esp32ModbusRTU* instance) {
 }
 
 void esp32ModbusRTU::_send(uint8_t* data, uint8_t length) {
+  // Clear RX buffer before sending to avoid contamination from previous messages
+  debugD("[MODBUS] Clearing RX buffer");
+  while (_serial->available()) {
+    _serial->read();
+  }
+  
   while (millis() - _lastMillis < _interval) delay(1);  // respect _interval
   // Toggle rtsPin, if necessary
-  if (_rtsPin >= 0) digitalWrite(_rtsPin, HIGH);
-  _serial->write(data, length);
+  if (_rtsPin >= 0) {
+    digitalWrite(_rtsPin, HIGH);
+  }
+  size_t written = _serial->write(data, length);
   _serial->flush();
   // Toggle rtsPin, if necessary
-  if (_rtsPin >= 0) digitalWrite(_rtsPin, LOW);
+  if (_rtsPin >= 0) {
+    digitalWrite(_rtsPin, LOW);
+  }
   _lastMillis = millis();
 }
 
@@ -136,15 +169,29 @@ void esp32ModbusRTU::setTimeOutValue(uint32_t tov) {
 
 ModbusResponse* esp32ModbusRTU::_receive(ModbusRequest* request) {
   ModbusResponse* response = new ModbusResponse(request->responseLength(), request);
+  debugD("[MODBUS] _receive() waiting for response...");
+  uint32_t startTime = millis();
+  uint32_t lastByteTime = millis();
+  bool firstByteReceived = false;
+  
   while (true) {
-    while (_serial->available()) {
-     response->add(_serial->read());
+    if (_serial->available()) {
+      uint8_t byte = _serial->read();
+      debugD("[MODBUS] Received byte: 0x%02x", byte);
+      response->add(byte);
+      lastByteTime = millis();
+      firstByteReceived = true;
     }
-    if (response->isComplete()) {
+    
+    // Keep reading for 200ms after the first byte starts arriving, then give 100ms grace period for stragglers
+    if (firstByteReceived && (millis() - lastByteTime > 100)) {
+      debugD("[MODBUS] Response complete! (waited for stragglers)");
       _lastMillis = millis();
       break;
     }
+    
     if (millis() - _lastMillis > TimeOutValue) {
+      debugD("[MODBUS] Timeout waiting for response (waited %d ms)", millis() - startTime);
       break;
     }
     delay(1);  // take care of watchdog
