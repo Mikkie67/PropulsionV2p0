@@ -73,6 +73,7 @@ void Parse_D0000026(sBMS_data_t* sBMS_data, uint8_t* data, size_t length)
 void Parse_D0260019(sBMS_data_t* sBMS_data, uint8_t* data, size_t length)
 {
   uint8_t i = 0;
+  // Temperatures (12 registers = 24 bytes)
   sBMS_data->sTemperatures.wTemp[0] = (data[i++]<<8) + data[i++];
   sBMS_data->sTemperatures.wTemp[1] = (data[i++]<<8) + data[i++];
   sBMS_data->sTemperatures.wTemp[2] = (data[i++]<<8) + data[i++];
@@ -85,6 +86,7 @@ void Parse_D0260019(sBMS_data_t* sBMS_data, uint8_t* data, size_t length)
   sBMS_data->sTemperatures.wTempMOS = (data[i++]<<8) + data[i++];
   sBMS_data->sTemperatures.wTempMax = (data[i++]<<8) + data[i++];
   sBMS_data->sTemperatures.wTempMin = (data[i++]<<8) + data[i++];
+  // Current, SOC, faults (13 registers = 26 bytes) - continues from byte 24
   sBMS_data->sCurrentSocHeatCoolFault.wIcharge = (data[i++]<<8) + data[i++];
   sBMS_data->sCurrentSocHeatCoolFault.wIdischarge = (data[i++]<<8) + data[i++];
   sBMS_data->sCurrentSocHeatCoolFault.wSOC = (data[i++]<<8) + data[i++];
@@ -94,10 +96,21 @@ void Parse_D0260019(sBMS_data_t* sBMS_data, uint8_t* data, size_t length)
   sBMS_data->sCurrentSocHeatCoolFault.wFacmA = (data[i++]<<8) + data[i++];
   sBMS_data->sCurrentSocHeatCoolFault.wCycleTime = (data[i++]<<8) + data[i++];
   sBMS_data->sCurrentSocHeatCoolFault.wFaultFirst = (data[i++]<<8) + data[i++];
-  sBMS_data->sCurrentSocHeatCoolFault.wFaultFirst = (data[i++]<<8) + data[i++];
+  sBMS_data->sCurrentSocHeatCoolFault.wFaultSecond = (data[i++]<<8) + data[i++];
   sBMS_data->sCurrentSocHeatCoolFault.wFaultThird = (data[i++]<<8) + data[i++];
   sBMS_data->sCurrentSocHeatCoolFault.wHeatCoolError = (data[i++]<<8) + data[i++];
 }
+
+/**
+ * Parse SOC data from register 0xD200 (1 register)
+ * Contains State of Charge value
+ */
+void Parse_D2000001(sBMS_data_t* sBMS_data, uint8_t* data, size_t length)
+{
+  uint8_t i = 0;
+  //sBMS_data->sCurrentSocHeatCoolFault.wSOC = (data[i++]<<8) + data[i++];
+}
+
 void Parse_D1000015(sBMS_data_t* sBMS_data, uint8_t* data, size_t length)
 {
   uint8_t i = 0;

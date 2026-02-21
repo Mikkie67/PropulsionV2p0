@@ -143,7 +143,7 @@ void esp32ModbusRTU::_handleConnection(esp32ModbusRTU* instance) {
 
 void esp32ModbusRTU::_send(uint8_t* data, uint8_t length) {
   // Clear RX buffer before sending to avoid contamination from previous messages
-  debugD("[MODBUS] Clearing RX buffer");
+  //debugD("[MODBUS] Clearing RX buffer");
   while (_serial->available()) {
     _serial->read();
   }
@@ -169,7 +169,7 @@ void esp32ModbusRTU::setTimeOutValue(uint32_t tov) {
 
 ModbusResponse* esp32ModbusRTU::_receive(ModbusRequest* request) {
   ModbusResponse* response = new ModbusResponse(request->responseLength(), request);
-  debugD("[MODBUS] _receive() waiting for response...");
+  //debugD("[MODBUS] _receive() waiting for response...");
   uint32_t startTime = millis();
   uint32_t lastByteTime = millis();
   bool firstByteReceived = false;
@@ -177,7 +177,10 @@ ModbusResponse* esp32ModbusRTU::_receive(ModbusRequest* request) {
   while (true) {
     if (_serial->available()) {
       uint8_t byte = _serial->read();
-      debugD("[MODBUS] Received byte: 0x%02x", byte);
+      if (!firstByteReceived) {
+        debugI("[MODBUS] First byte received after %d ms (0x%02x)", millis() - startTime, byte);
+      }
+      //debugD("[MODBUS] Received byte: 0x%02x", byte);
       response->add(byte);
       lastByteTime = millis();
       firstByteReceived = true;
@@ -185,13 +188,17 @@ ModbusResponse* esp32ModbusRTU::_receive(ModbusRequest* request) {
     
     // Keep reading for 200ms after the first byte starts arriving, then give 100ms grace period for stragglers
     if (firstByteReceived && (millis() - lastByteTime > 100)) {
-      debugD("[MODBUS] Response complete! (waited for stragglers)");
+      debugI("[MODBUS] Response complete! Got %d bytes (waited %d ms for full response)", response->getSize(), millis() - startTime);
       _lastMillis = millis();
       break;
     }
     
     if (millis() - _lastMillis > TimeOutValue) {
-      debugD("[MODBUS] Timeout waiting for response (waited %d ms)", millis() - startTime);
+      if (!firstByteReceived) {
+        debugW("[MODBUS] NO DATA RECEIVED - Timeout after %d ms (TimeOutValue=%d ms)", millis() - startTime, TimeOutValue);
+      } else {
+        debugD("[MODBUS] Timeout waiting for response (waited %d ms)", millis() - startTime);
+      }
       break;
     }
     delay(1);  // take care of watchdog

@@ -23,10 +23,10 @@ typedef struct
 } sPropData_t;
 typedef struct
 {
-    uint32_t Voltage;
-    uint32_t Current;
-    uint32_t SoC;
-    int32_t Temp;
+    int32_t Voltage;   // In tenths of volts (546 = 54.6V)
+    int32_t Current;   // In tenths of amps (15 = 1.5A, -15 = -1.5A)
+    uint32_t SoC;      // Percentage (0-100)
+    int32_t Temp;      // In degrees Celsius
     bool BmsCommsOk;
 } sBmsData_t;
 typedef struct
@@ -49,6 +49,7 @@ typedef struct
 
 uint16_t WriteJustifiedBool(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, bool value, eJustify_t eJustify, bool newline);
 uint16_t WriteJustifiedTemp(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, int32_t value, eJustify_t eJustify, bool newline);
+uint16_t WriteJustifiedFixed1(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, int32_t value, eJustify_t eJustify, bool newline);
 void createFixedElements(ILI9488* tft);
 void createDynamicElements(ILI9488* tft, sDisplayData_t sDisplayData);
 void testLcd(ILI9488* tft);

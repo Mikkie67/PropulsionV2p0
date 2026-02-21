@@ -31,6 +31,7 @@ MODBUS over serial line specification and implementation guide V1.02
 
 #include "ModbusMessage.h"
 #include "HardwareSerial.h"
+#include "sensesp.h"
 
 using namespace esp32ModbusRTUInternals;  // NOLINT
 
@@ -266,13 +267,17 @@ bool ModbusResponse::isComplete() {
 bool ModbusResponse::isSucces() {
   if (!isComplete()) {
     _error = esp32Modbus::TIMEOUT;
+    debugI("ModbusResponse: NOT COMPLETE - TIMEOUT");
   } else if (_buffer[1] > 0x80) {
     _error = static_cast<esp32Modbus::Error>(_buffer[2]);
+    debugI("ModbusResponse: ERROR Response from slave - Error Code: 0x%02X", _buffer[2]);
   } else if (!checkCRC()) {
     _error = esp32Modbus::CRC_ERROR;
+    debugI("ModbusResponse: CRC_ERROR detected in response");
   // TODO(bertmelis): add other checks
   } else {
     _error = esp32Modbus::SUCCES;
+    debugI("ModbusResponse: SUCCESS - valid response");
   }
   if (_error == esp32Modbus::SUCCES) {
     return true;
@@ -283,11 +288,32 @@ bool ModbusResponse::isSucces() {
 
 bool ModbusResponse::checkCRC() {
   uint16_t CRC = CRC16(_buffer, _length - 2);
-  if (low(CRC) == _buffer[_length - 2] && high(CRC) == _buffer[_length -1]) {
-    return true;
-  } else {
-    return false;
+  uint8_t calc_crc_low = low(CRC);
+  uint8_t calc_crc_high = high(CRC);
+  uint8_t recv_crc_low = _buffer[_length - 2];
+  uint8_t recv_crc_high = _buffer[_length - 1];
+  
+  // Debug output for CRC validation
+  //ebugI("CRC CHECK - Length=%d bytes", _length);
+  
+  // Show received data
+  /* debugI("  Received data: ");
+  for (uint8_t i = 0; i < _length; i++) {
+    if (i % 16 == 0) debugI("");
+    debugI("%02X ", _buffer[i]);
   }
+ 
+  // Show CRC details
+  debugI("  Received CRC: 0x%02X%02X (low=0x%02X, high=0x%02X)", 
+         recv_crc_high, recv_crc_low, recv_crc_low, recv_crc_high);
+  debugI("  Calculated CRC: 0x%02X%02X (low=0x%02X, high=0x%02X)", 
+         calc_crc_high, calc_crc_low, calc_crc_low, calc_crc_high);
+  */
+  // Check if they match
+  bool match = (calc_crc_low == recv_crc_low && calc_crc_high == recv_crc_high);
+  //debugI("  CRC Match: %s", match ? "YES ✓" : "NO ✗");
+  
+  return match;
 }
 
 esp32Modbus::Error ModbusResponse::getError() const {

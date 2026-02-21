@@ -1,5 +1,31 @@
 #include "propDisplay.h"
 
+// Display a value with 1 decimal place (e.g., 546 displays as "54.6")
+uint16_t WriteJustifiedFixed1(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, int32_t value, eJustify_t eJustify, bool newline) 
+{
+    uint16_t x_pos=0;
+    char str[20] = {0};
+    sprintf(str,"%d.%d", value / 10, abs(value % 10));
+    switch (eJustify)
+    {
+    case CENTER:
+        x_pos = x_start + (((x_stop-x_start)/2) - (strnlen(str,80)*PIXEL_WIDTH)/2); break;
+    case LEFT:
+        x_pos = x_start; break;
+    case RIGHT:
+        x_pos = (x_stop - (strnlen(str,80)*PIXEL_WIDTH)); break;
+    default:
+        break;
+    }
+    tft->setCursor(x_pos,y_pos);
+    tft->println(str);
+    if (newline)
+    {
+        y_pos += PIXEL_HEIGHT;
+    }
+    return y_pos;
+}
+
 uint16_t WriteJustifiedString(ILI9488* tft, uint16_t y_pos, uint16_t x_start, uint16_t x_stop, char* string, eJustify_t eJustify, bool newline) 
 {
     uint16_t x_pos=0;
@@ -156,19 +182,19 @@ void createDynamicElements(ILI9488* tft, sDisplayData_t sDisplayData)
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.Starboard.MotorRpm, eJustify_t::RIGHT,true);
   y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.Port.PhaseCurrent, eJustify_t::LEFT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.Starboard.PhaseCurrent, eJustify_t::RIGHT,true);
-  //y_pos = WriteJustifiedValue(tft,y_pos,0  ,480,sDisplayData.Port.ControllerTemp, eJustify_t::LEFT,false);
-  //y_pos = WriteJustifiedValue(tft,y_pos,0  ,480,sDisplayData.Starboard.ControllerTemp, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedBool(tft,y_pos,30  ,480,sDisplayData.Port.ControllerCommsOk, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedBool(tft,y_pos,0  ,440,sDisplayData.Starboard.ControllerCommsOk, eJustify_t::RIGHT,true);
   y_pos = 127;
-  y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Voltage, eJustify_t::LEFT,false);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.AftBattery.Voltage, eJustify_t::RIGHT,true);
-  y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Current, eJustify_t::LEFT,false);
-  y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.AftBattery.Current, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedFixed1(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Voltage, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedFixed1(tft,y_pos,0  ,440,sDisplayData.AftBattery.Voltage, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedFixed1(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Current, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedFixed1(tft,y_pos,0  ,440,sDisplayData.AftBattery.Current, eJustify_t::RIGHT,true);
   y_pos = WriteJustifiedValue(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.SoC, eJustify_t::LEFT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,440,sDisplayData.AftBattery.SoC, eJustify_t::RIGHT,true);
   y_pos = WriteJustifiedTemp(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.Temp, eJustify_t::LEFT,false);
   y_pos = WriteJustifiedTemp(tft,y_pos,0  ,440,sDisplayData.AftBattery.Temp, eJustify_t::RIGHT,true);
-  //y_pos = WriteJustifiedValue(tft,y_pos,0  ,480,sDisplayData.Port.ControllerTemp, eJustify_t::LEFT,false);
-  //y_pos = WriteJustifiedValue(tft,y_pos,0  ,480,sDisplayData.Starboard.ControllerTemp, eJustify_t::RIGHT,true);
+  y_pos = WriteJustifiedBool(tft,y_pos,30  ,480,sDisplayData.ForwardBattery.BmsCommsOk, eJustify_t::LEFT,false);
+  y_pos = WriteJustifiedBool(tft,y_pos,0  ,440,sDisplayData.AftBattery.BmsCommsOk, eJustify_t::RIGHT,true);
   y_pos = 215;
   y_pos = WriteJustifiedBool(tft,y_pos,0  ,200,sDisplayData.CoolantFan, eJustify_t::RIGHT,false);
   y_pos = WriteJustifiedValue(tft,y_pos,0  ,470,sDisplayData.UpTime, eJustify_t::RIGHT,true);

@@ -8,7 +8,7 @@
 //       vcu id
 
 // #define SERIAL_DEBUG_DISABLED
-// #define OTA_ENABLED
+#define OTA_ENABLED
 #include "Adafruit_GFX.h"
 #include "ILI9488.h"
 #include "SPIFFS.h"
@@ -25,10 +25,12 @@
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/signalk/signalk_output.h"
 #include "sensesp/system/lambda_consumer.h"
+#include "signalk_metadata_zones.h"
 #include "sensesp_app_builder.h"
 #include "sensesp_onewire/onewire_temperature.h"
 #include <sensesp/transforms/hysteresis.h>
 #include "sensesp/ui/ui_controls.h"
+#include "sensesp/signalk/signalk_delta_queue.h"
 
 using namespace sensesp;
 using namespace sensesp::onewire;
@@ -80,6 +82,8 @@ const byte ModBusRxdPin = 18;  // KerProp.MOD_RXD
 esp32ModbusRTU BMS_modbus(&Serial1, ModBusTxdPin, ModBusRxdPin, ModBusDePin);
 sBMS_data_t sBMS0_data;
 sBMS_data_t sBMS1_data;
+uint16_t last_requested_address = 0;  // Track which address was just requested for CRC error debugging
+uint8_t last_requested_slave = 0;     // Track which slave address was requested
 // -----------------------------------------------------------------------------
 // CAN defines --> using TWAI controller
 // -----------------------------------------------------------------------------
@@ -107,9 +111,9 @@ float adc_midpoint_voltage = 2.5f;
 // Hysteresis band around neutral position (in volts) - throttle remains at 0% within this range
 float adc_neutral_hysteresis = 0.1f;
 // Throttle percentage threshold below which motor enters idle mode
-float throttle_idle_threshold = 10.0f;  // % (absolute value)
+float throttle_idle_threshold = 0.10f;  // % (absolute value)
 // Throttle percentage to use when in idle mode
-float throttle_idle_percent = 10.0f;  // %
+float throttle_idle_percent = 0.10f;  // %
 // Maximum phase current for motor control (in Amps)
 float max_phase_current = 250.0f;  // A
 
@@ -166,6 +170,10 @@ unsigned long motor_runtime_seconds = 0;  // Total accumulated motor runtime
 // Coolant pump max temperature tracking - updated by sensor callbacks
 float max_motor_controller_temp_kelvin = 273.15f;  // Track max of 4 temps in Kelvin for pump control
 
+// Cell metadata tracking - sent when Signal K websocket connects
+bool was_signalk_connected = false;
+int metadata_batch_index = 0;  // Track which batch of metadata to send
+std::vector<String> cell_metadata_messages;  // Pre-built metadata messages
 
 // Forward declarations - initialized in setupTempSensors() after sensesp_app is created
 DallasTemperatureSensors* dts = nullptr;
@@ -273,6 +281,45 @@ ICACHE_RAM_ATTR void isr() {
   updateRpm = true;
 }
 
+// Function to build and store cell metadata messages (called during setup)
+void build_cell_metadata() {
+  // Battery 01 metadata
+  String bat01_description = "Battery 01 cell voltage";
+  for (int i = 0; i < 32; i++) {
+    String meta_msg = "{\"path\":\"electrical.batteries.bat01.cells.cell" + String(i+1) + "\",\"value\":null,\"meta\":{\"units\":\"V\",\"description\":\"" + bat01_description + "\",\"displayName\":\"Cell " + String(i+1) + "\",\"warnLower\":2.9,\"faultLower\":2.6,\"warnUpper\":3.55,\"faultUpper\":3.65}}";
+    cell_metadata_messages.push_back(meta_msg);
+  }
+  
+  // Battery 02 metadata
+  String bat02_description = "Battery 02 cell voltage";
+  for (int i = 0; i < 32; i++) {
+    String meta_msg = "{\"path\":\"electrical.batteries.bat02.cells.cell" + String(i+1) + "\",\"value\":null,\"meta\":{\"units\":\"V\",\"description\":\"" + bat02_description + "\",\"displayName\":\"Cell " + String(i+1) + "\",\"warnLower\":3.0,\"faultLower\":2.8,\"warnUpper\":3.5,\"faultUpper\":3.8}}";
+    cell_metadata_messages.push_back(meta_msg);
+  }
+  
+  debugI("Built %d cell metadata messages (in memory, not yet sent)", cell_metadata_messages.size());
+}
+
+// Function to send pre-built cell metadata in batches (buffer limit is 20)
+// Returns true when all batches are sent
+bool send_cell_metadata_batch() {
+  const int BATCH_SIZE = 10;  // Send 10 at a time (buffer max is 20)
+  int start = metadata_batch_index * BATCH_SIZE;
+  int end = min(start + BATCH_SIZE, (int)cell_metadata_messages.size());
+  
+  for (int i = start; i < end; i++) {
+    sensesp_app->get_sk_delta()->append(cell_metadata_messages[i]);
+  }
+  
+  debugI("✓ Sent metadata batch %d (messages %d-%d of %d)", 
+         metadata_batch_index + 1, start + 1, end, cell_metadata_messages.size());
+  
+  metadata_batch_index++;
+  
+  // Return true if all batches are done
+  return (end >= (int)cell_metadata_messages.size());
+}
+
 // ----------------------------------------------------------
 // The setup function performs one-time application initialization.
 // ----------------------------------------------------------
@@ -333,6 +380,25 @@ void setup() {
   delay(100);
   sensesp_app->start();
   debugD("sensesp_app->start() complete");
+  
+  // Build cell metadata messages (stored in memory, will send when SK connects)
+  build_cell_metadata();
+  
+  // Send metadata when Signal K websocket is connected, in batches
+  app.onRepeat(500, []() {
+    // Check actual websocket connection status
+    auto ws_client = sensesp_app->get_ws_client();
+    if (ws_client && ws_client->is_connected()) {
+      if (!was_signalk_connected) {
+        debugI("✓ Signal K websocket connected, starting metadata send");
+        was_signalk_connected = true;
+      }
+      // Send next batch if we haven't sent all yet
+      if (metadata_batch_index * 10 < (int)cell_metadata_messages.size()) {
+        send_cell_metadata_batch();
+      }
+    }
+  });
   
   /*// Force WiFi AP mode if not already in AP mode
   if ((WiFi.getMode() & WIFI_AP) == 0) {
@@ -417,6 +483,9 @@ void setupLcdDisplay(void) {
   createDynamicElements(&tft, sDisplayData);
   app.onRepeat(1000, [&]() {
     sDisplayData.UpTime = millis() / 1000;  // Use actual system time instead of counting
+    // Update shaft RPM display (convert from Hz to RPM for LCD display)
+    double frequency = clShaftFreq.getCurrentFrequency();
+    sDisplayData.ShaftRpm = (int32_t)(frequency * 60);  // Convert Hz to RPM for display
     createDynamicElements(&tft, sDisplayData);
   });
   // TODO testLcd();
@@ -434,26 +503,170 @@ void setupKerPropCanBus(void) {
   debugD("CAN Command sent (Idle/Neutral)");
   
 }
+
+// Compound type for battery cell data (like Position in SensESP)
+struct BatteryCellsData {
+  uint16_t cells[32];      // Individual cell voltages (0-31)
+  uint16_t max_voltage;    // Highest cell voltage
+  uint16_t min_voltage;    // Lowest cell voltage
+  uint16_t max_index;      // Which cell has max voltage
+  uint16_t min_index;      // Which cell has min voltage
+  uint16_t imbalance;      // Voltage delta (max - min)
+};
+
 void setupBms(void) {
   // -------------------------------------------------------------
   // MOD BUS for 2x BMS
   // -------------------------------------------------------------
+  
+  // Create Signal K outputs for Battery 01 (addr 0x01)
+  auto* bat01_voltage_metadata = new SKMetadataWithZones(
+      "V", "Battery 01 Voltage", "Forward battery pack voltage");
+  bat01_voltage_metadata->add_zone(0, 45, "alarm", "Battery voltage critically low");
+  bat01_voltage_metadata->add_zone(45, 48, "warn", "Battery voltage low");
+  bat01_voltage_metadata->add_zone(48, 51.2, "normal", "Normal operating voltage");
+  bat01_voltage_metadata->add_zone(51.2, 55, "alarm", "Battery voltage overvoltage condition");
+  auto* bat01_voltage_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat01.voltage", 
+      "/bat01_voltage", 
+      bat01_voltage_metadata);
+  
+  auto* bat01_current_metadata = new SKMetadataWithZones(
+      "A", "Battery 01 Current", "Battery 01 charge/discharge current (positive=charging)");
+  bat01_current_metadata->add_zone(-200, -150, "alarm", "Excessive discharge current");
+  bat01_current_metadata->add_zone(-150, -80, "warn", "High discharge current");
+  bat01_current_metadata->add_zone(-80, 80, "normal", "Normal operating current");
+  bat01_current_metadata->add_zone(80, 150, "warn", "High charge current");
+  bat01_current_metadata->add_zone(150, 200, "alarm", "Excessive charge current");
+  auto* bat01_current_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat01.current", 
+      "/bat01_current", 
+      bat01_current_metadata);
+  
+  auto* bat01_soc_metadata = new SKMetadataWithZones(
+      "ratio", "Battery 01 State of Charge", "Battery 01 state of charge (0.0-1.0)");
+  bat01_soc_metadata->add_zone(0, 0.1, "alarm", "Battery critically discharged");
+  bat01_soc_metadata->add_zone(0.1, 0.2, "warn", "Battery low");
+  bat01_soc_metadata->add_zone(0.2, 0.8, "normal", "Normal operating range");
+  bat01_soc_metadata->add_zone(0.8, 1.0, "warn", "Battery nearly full");
+  auto* bat01_soc_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat01.capacity.stateOfCharge", 
+      "/bat01_soc", 
+      bat01_soc_metadata);
+  
+  auto* bat01_temp_metadata = new SKMetadataWithZones(
+      "K", "Battery 01 Temperature", "Battery 01 maximum cell temperature");
+  bat01_temp_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  bat01_temp_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  bat01_temp_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce charge/discharge");
+  bat01_temp_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* bat01_temp_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat01.temperature", 
+      "/bat01_temp", 
+      bat01_temp_metadata);
+  
+  // Create Signal K outputs for Battery 02 (addr 0x02)
+  auto* bat02_voltage_metadata = new SKMetadataWithZones(
+      "V", "Battery 02 Voltage", "Aft battery pack voltage");
+  bat02_voltage_metadata->add_zone(0, 45, "alarm", "Battery voltage critically low");
+  bat02_voltage_metadata->add_zone(45, 48, "warn", "Battery voltage low");
+  bat02_voltage_metadata->add_zone(48, 51.2, "normal", "Normal operating voltage");
+  bat02_voltage_metadata->add_zone(51.2, 55, "alarm", "Battery voltage overvoltage condition");
+  auto* bat02_voltage_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat02.voltage", 
+      "/bat02_voltage", 
+      bat02_voltage_metadata);
+  
+  auto* bat02_current_metadata = new SKMetadataWithZones(
+      "A", "Battery 02 Current", "Battery 02 charge/discharge current (positive=charging)");
+  bat02_current_metadata->add_zone(-200, -150, "alarm", "Excessive discharge current");
+  bat02_current_metadata->add_zone(-150, -80, "warn", "High discharge current");
+  bat02_current_metadata->add_zone(-80, 80, "normal", "Normal operating current");
+  bat02_current_metadata->add_zone(80, 150, "warn", "High charge current");
+  bat02_current_metadata->add_zone(150, 200, "alarm", "Excessive charge current");
+  auto* bat02_current_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat02.current", 
+      "/bat02_current", 
+      bat02_current_metadata);
+  
+  auto* bat02_soc_metadata = new SKMetadataWithZones(
+      "ratio", "Battery 02 State of Charge", "Battery 02 state of charge (0.0-1.0)");
+  bat02_soc_metadata->add_zone(0, 0.1, "alarm", "Battery critically discharged");
+  bat02_soc_metadata->add_zone(0.1, 0.2, "warn", "Battery low");
+  bat02_soc_metadata->add_zone(0.2, 0.8, "normal", "Normal operating range");
+  bat02_soc_metadata->add_zone(0.8, 1.0, "warn", "Battery nearly full");
+  auto* bat02_soc_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat02.capacity.stateOfCharge", 
+      "/bat02_soc", 
+      bat02_soc_metadata);
+  
+  auto* bat02_temp_metadata = new SKMetadataWithZones(
+      "K", "Battery 02 Temperature", "Battery 02 maximum cell temperature");
+  bat02_temp_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  bat02_temp_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  bat02_temp_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce charge/discharge");
+  bat02_temp_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* bat02_temp_output = new SKOutputNumeric<float>(
+      "electrical.batteries.bat02.temperature", 
+      "/bat02_temp", 
+      bat02_temp_metadata);
+  
   BMS_modbus.onData([](uint8_t serverAddress, esp32Modbus::FunctionCode fc,
                        uint16_t address, uint8_t* data, size_t length) {
-    Serial.printf("Addr = 0x%04X\n", address);
+      // This callback only fires if CRC is VALID
+    debugI("✓ DATA RECEIVED (CRC OK) - Addr=0x%04X Slave=0x%02x Length=%d", address, serverAddress, length);
     switch (address) {
       case 0xD000: {
+        // Debug: Show raw data for D0000026
+        String hex_dump = "RAW D0000 (";
+        hex_dump += String(length);
+        hex_dump += " bytes): ";
+        for (size_t i = 0; i < length && i < 10; i++) {
+          hex_dump += String(data[i], HEX);
+          hex_dump += " ";
+        }
+        if (length > 10) hex_dump += "...";
+        debugI("%s", hex_dump.c_str());
+        
         if (serverAddress == 0x01) {
           Parse_D0000026(&sBMS0_data, data, length);
+          debugI("✓ BAT01 D0000 PARSED: Cell[0]=0x%04x Cell[1]=0x%04x VMax=0x%04x VMin=0x%04x\n", 
+                 sBMS0_data.wVcellAFE1[0], sBMS0_data.wVcellAFE1[1],
+                 sBMS0_data.sVcellStatistics.wVcellMax, sBMS0_data.sVcellStatistics.wVcellMin);
         } else if (serverAddress == 0x02) {
           Parse_D0000026(&sBMS1_data, data, length);
+          debugI("✓ BAT02 D0000 PARSED: Cell[0]=0x%04x Cell[1]=0x%04x VMax=0x%04x VMin=0x%04x\n",
+                 sBMS1_data.wVcellAFE1[0], sBMS1_data.wVcellAFE1[1],
+                 sBMS1_data.sVcellStatistics.wVcellMax, sBMS1_data.sVcellStatistics.wVcellMin);
         }
       } break;
       case 0xD026: {
+        // Debug: Show raw data for D026
+        String hex_dump = "RAW D026 (";
+        hex_dump += String(length);
+        hex_dump += " bytes): ";
+        for (size_t i = 0; i < length && i < 50; i++) {
+          if (data[i] < 0x10) hex_dump += "0";
+          hex_dump += String(data[i], HEX);
+          hex_dump += " ";
+        }
+        if (length > 50) hex_dump += "...";
+        debugI("%s", hex_dump.c_str());
+        
         if (serverAddress == 0x01) {
           Parse_D0260019(&sBMS0_data, data, length);
+          debugI("✓ BAT01 D026 PARSED: SOC=%d Icharge=%d Idischarge=%d TempMax=%d",
+                 sBMS0_data.sCurrentSocHeatCoolFault.wSOC,
+                 sBMS0_data.sCurrentSocHeatCoolFault.wIcharge,
+                 sBMS0_data.sCurrentSocHeatCoolFault.wIdischarge,
+                 sBMS0_data.sTemperatures.wTempMax);
         } else if (serverAddress == 0x02) {
           Parse_D0260019(&sBMS1_data, data, length);
+          debugI("✓ BAT02 D026 PARSED: SOC=%d Icharge=%d Idischarge=%d TempMax=%d",
+                 sBMS1_data.sCurrentSocHeatCoolFault.wSOC,
+                 sBMS1_data.sCurrentSocHeatCoolFault.wIcharge,
+                 sBMS1_data.sCurrentSocHeatCoolFault.wIdischarge,
+                 sBMS1_data.sTemperatures.wTempMax);
         }
       } break;
       case 0xD100: {
@@ -464,47 +677,191 @@ void setupBms(void) {
         }
       } break;
       case 0xD200: {
+        debugI("D200 response received from slave 0x%02X, length=%d", serverAddress, length);
         if (serverAddress == 0x01) {
-          Parse_D0260019(&sBMS0_data, data, length);
+          Parse_D2000001(&sBMS0_data, data, length);
+          debugI("✓ BAT01 D200 PARSED: wSOC=0x%04X (%d)", 
+                 sBMS0_data.sCurrentSocHeatCoolFault.wSOC,
+                 sBMS0_data.sCurrentSocHeatCoolFault.wSOC);
         } else if (serverAddress == 0x02) {
-          Parse_D0260019(&sBMS1_data, data, length);
+          Parse_D2000001(&sBMS1_data, data, length);
+          debugI("✓ BAT02 D200 PARSED: wSOC=0x%04X (%d)", 
+                 sBMS1_data.sCurrentSocHeatCoolFault.wSOC,
+                 sBMS1_data.sCurrentSocHeatCoolFault.wSOC);
         }
       } break;
     }
   });
   BMS_modbus.onError([](esp32Modbus::Error error) {
-    debugD("error: 0x%02x\n\n", static_cast<uint8_t>(error));
+    const char* error_str = "UNKNOWN";
+    switch (error) {
+      case esp32Modbus::SUCCES:               error_str = "SUCCESS"; break;
+      case esp32Modbus::ILLEGAL_FUNCTION:     error_str = "ILLEGAL_FUNCTION"; break;
+      case esp32Modbus::ILLEGAL_DATA_ADDRESS: error_str = "ILLEGAL_DATA_ADDRESS"; break;
+      case esp32Modbus::ILLEGAL_DATA_VALUE:   error_str = "ILLEGAL_DATA_VALUE"; break;
+      case esp32Modbus::SERVER_DEVICE_FAILURE: error_str = "SERVER_DEVICE_FAILURE"; break;
+      case esp32Modbus::ACKNOWLEDGE:          error_str = "ACKNOWLEDGE"; break;
+      case esp32Modbus::SERVER_DEVICE_BUSY:   error_str = "SERVER_DEVICE_BUSY"; break;
+      case esp32Modbus::NEGATIVE_ACKNOWLEDGE: error_str = "NEGATIVE_ACKNOWLEDGE"; break;
+      case esp32Modbus::MEMORY_PARITY_ERROR:  error_str = "MEMORY_PARITY_ERROR"; break;
+      case esp32Modbus::TIMEOUT:              error_str = "TIMEOUT"; break;
+      case esp32Modbus::INVALID_SLAVE:        error_str = "INVALID_SLAVE"; break;
+      case esp32Modbus::INVALID_FUNCTION:     error_str = "INVALID_FUNCTION"; break;
+      case esp32Modbus::CRC_ERROR: {
+        error_str = "CRC_ERROR";
+        debugW("!!! CRC ERROR on response to: Slave=0x%02x Address=0x%04x", 
+                      last_requested_slave, last_requested_address);
+        debugW("    Device DID respond (we have data), but CRC validation failed.");
+        debugW("    This usually means: CRC-16 variant mismatch between library and device");
+        break;
+      }
+      case esp32Modbus::COMM_ERROR:           error_str = "COMM_ERROR"; break;
+      default: break;
+    }
+    debugW("⚠ MODBUS ERROR: 0x%02x (%s)", static_cast<uint8_t>(error), error_str);
   });
   debugD("Initializing Serial1 at 19200 baud, RX=pin 18, TX=pin 17");
   Serial1.begin(19200, SERIAL_8N1, ModBusRxdPin, ModBusTxdPin);  // Modbus connection
   debugD("Calling BMS_modbus.begin()");
   BMS_modbus.begin();
   debugD("BMS_modbus initialized successfully");
+  
+  // Increase timeout for large responses (D0000 is 76 bytes @ 19200 baud = ~40ms + buffer)
+  BMS_modbus.setTimeOutValue(500);  // 500ms timeout should be plenty
+  debugD("BMS_modbus timeout set to 500ms");
+  
+  // Periodic update of battery data to Signal K
+  app.onRepeat(1000, [bat01_voltage_output, bat01_current_output, bat01_soc_output, bat01_temp_output,
+                      bat02_voltage_output, bat02_current_output, bat02_soc_output, bat02_temp_output]() {
+    // Update cell data as compound structure (like Position in SensESP)
+    BatteryCellsData bat01_cells = {};
+    for (int i = 0; i < 16; i++) bat01_cells.cells[i] = sBMS0_data.wVcellAFE1[i];
+    for (int i = 0; i < 16; i++) bat01_cells.cells[16 + i] = sBMS0_data.wVcellAFE2[i];
+    bat01_cells.max_voltage = sBMS0_data.sVcellStatistics.wVcellMax;
+    bat01_cells.min_voltage = sBMS0_data.sVcellStatistics.wVcellMin;
+    bat01_cells.max_index = sBMS0_data.sVcellStatistics.wMaxPosition;
+    bat01_cells.min_index = sBMS0_data.sVcellStatistics.wMinPosition;
+    bat01_cells.imbalance = sBMS0_data.sVcellStatistics.wVdelta;
+    
+    BatteryCellsData bat02_cells = {};
+    for (int i = 0; i < 16; i++) bat02_cells.cells[i] = sBMS1_data.wVcellAFE1[i];
+    for (int i = 0; i < 16; i++) bat02_cells.cells[16 + i] = sBMS1_data.wVcellAFE2[i];
+    bat02_cells.max_voltage = sBMS1_data.sVcellStatistics.wVcellMax;
+    bat02_cells.min_voltage = sBMS1_data.sVcellStatistics.wVcellMin;
+    bat02_cells.max_index = sBMS1_data.sVcellStatistics.wMaxPosition;
+    bat02_cells.min_index = sBMS1_data.sVcellStatistics.wMinPosition;
+    bat02_cells.imbalance = sBMS1_data.sVcellStatistics.wVdelta;
+    
+    
+    // Emit cell data as individual path entries - values only (metadata sent at startup)
+    {
+      // Battery 01 cells - each cell as its own path
+      for (int i = 0; i < 32; i++) {
+        float cell_v;
+        if (bat01_cells.cells[i] == 0xEE49) {
+          cell_v = -1.0f;  // Invalid/missing data marker
+        } else {
+          cell_v = bat01_cells.cells[i] / 1000.0f;
+        }
+        String delta_msg = "{\"path\":\"electrical.batteries.bat01.cells.cell" + String(i+1) + "\",\"value\":" + String(cell_v, 3) + "}";
+        sensesp_app->get_sk_delta()->append(delta_msg);
+      }
+      
+      // Battery 02 cells - each cell as its own path
+      for (int i = 0; i < 32; i++) {
+        float cell_v;
+        if (bat02_cells.cells[i] == 0xEE49) {
+          cell_v = -1.0f;  // Invalid/missing data marker
+        } else {
+          cell_v = bat02_cells.cells[i] / 1000.0f;
+        }
+        String delta_msg = "{\"path\":\"electrical.batteries.bat02.cells.cell" + String(i+1) + "\",\"value\":" + String(cell_v, 3) + "}";
+        sensesp_app->get_sk_delta()->append(delta_msg);
+      }
+    }
+    
+    // Battery 01 - Forward battery
+    if (sBMS0_data.sVcellStatistics.wVbat > 0) {
+      bat01_voltage_output->set(sBMS0_data.sVcellStatistics.wVbat / 100.0f);  // Convert 10mV to V
+      sDisplayData.ForwardBattery.Voltage = sBMS0_data.sVcellStatistics.wVbat / 10;  // Display in 100mV (512 = 51.2V)
+      sDisplayData.ForwardBattery.BmsCommsOk = true;
+      
+      // Current: positive for charging, negative for discharging
+      float bat01_current = (float)sBMS0_data.sCurrentSocHeatCoolFault.wIcharge / 1000.0f;  // Convert mA to A
+      if (sBMS0_data.sCurrentSocHeatCoolFault.wIdischarge > 0) {
+        bat01_current = -(float)sBMS0_data.sCurrentSocHeatCoolFault.wIdischarge / 1000.0f;  // Discharge is negative
+      }
+      bat01_current_output->set(bat01_current);
+      sDisplayData.ForwardBattery.Current = (int32_t)(bat01_current * 10);  // Display in 100mA units
+      
+      // SOC: convert from percentage (0-100) to ratio (0.0-1.0)
+      debugI("BAT01 SOC raw=%d%% → %.2f", 
+             sBMS0_data.sCurrentSocHeatCoolFault.wSOC, 
+             sBMS0_data.sCurrentSocHeatCoolFault.wSOC / 100.0f);
+      bat01_soc_output->set(sBMS0_data.sCurrentSocHeatCoolFault.wSOC / 100.0f);
+      sDisplayData.ForwardBattery.SoC = sBMS0_data.sCurrentSocHeatCoolFault.wSOC;  // Display as percentage
+    }
+    // Temperature: convert from 0.1°C units with +40°C offset to Kelvin
+    if (sBMS0_data.sTemperatures.wTempMax > 0) {
+      float temp_celsius = (sBMS0_data.sTemperatures.wTempMax / 10.0f) - 40.0f;  // Remove +40 offset
+      bat01_temp_output->set(temp_celsius + 273.15f);
+      sDisplayData.ForwardBattery.Temp = (sBMS0_data.sTemperatures.wTempMax / 10) - 40;  // Display in °C
+    }
+    
+    // Battery 02 - Aft battery
+    if (sBMS1_data.sVcellStatistics.wVbat > 0) {
+      bat02_voltage_output->set(sBMS1_data.sVcellStatistics.wVbat / 100.0f);  // Convert 10mV to V
+      sDisplayData.AftBattery.Voltage = sBMS1_data.sVcellStatistics.wVbat / 10;  // Display in 100mV
+      sDisplayData.AftBattery.BmsCommsOk = true;
+      
+      // Current: positive for charging, negative for discharging
+      float bat02_current = (float)sBMS1_data.sCurrentSocHeatCoolFault.wIcharge / 1000.0f;  // Convert mA to A
+      if (sBMS1_data.sCurrentSocHeatCoolFault.wIdischarge > 0) {
+        bat02_current = -(float)sBMS1_data.sCurrentSocHeatCoolFault.wIdischarge / 1000.0f;  // Discharge is negative
+      }
+      bat02_current_output->set(bat02_current);
+      sDisplayData.AftBattery.Current = (int32_t)(bat02_current * 10);  // Display in 100mA units
+      
+      // SOC: convert from percentage (0-100) to ratio (0.0-1.0)
+      bat02_soc_output->set(sBMS1_data.sCurrentSocHeatCoolFault.wSOC / 100.0f);
+      sDisplayData.AftBattery.SoC = sBMS1_data.sCurrentSocHeatCoolFault.wSOC;  // Display as percentage
+    }
+    // Temperature: convert from 0.1°C units with +40°C offset to Kelvin
+    if (sBMS1_data.sTemperatures.wTempMax > 0) {
+      float temp_celsius = (sBMS1_data.sTemperatures.wTempMax / 10.0f) - 40.0f;  // Remove +40 offset
+      bat02_temp_output->set(temp_celsius + 273.15f);
+      sDisplayData.AftBattery.Temp = (sBMS1_data.sTemperatures.wTempMax / 10) - 40;  // Display in °C
+    }
+  });
+  
   app.onRepeat(8000, []() {
   //debugD("Sending MOD bus read requests, state_index = %d", state_index);
     switch (state_index) {
       case 0: {
+        last_requested_slave = 0x01;
+        last_requested_address = 0xD000;
         bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD000, 0x0026);
-        //debugD("readHoldingRegisters(0x01, 0xD000, 0x0026) returned: %s", result ? "TRUE" : "FALSE");
         state_index++;
         break;
       }
       case 1: {
+        last_requested_slave = 0x01;
+        last_requested_address = 0xD026;
         bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD026, 0x0019);
-        //debugD("readHoldingRegisters(0x01, 0xD026, 0x0019) returned: %s", result ? "TRUE" : "FALSE");
         state_index++;
         break;
       }
       case 2: {
-       debugD("------------------------------------> BMS_modbus sending 01 03 D1 00 00 15 BD 39 ");
-       bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD100, 0x0015);
-        debugD("readHoldingRegisters(0x01, 0xD100, 0x0015) returned: %s", result ? "TRUE" : "FALSE");
+        last_requested_slave = 0x01;
+        last_requested_address = 0xD100;
+        bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD100, 0x0015);
         state_index++;
         break;
       }
       case 3: {
+        last_requested_slave = 0x01;
+        last_requested_address = 0xD200;
         bool result = BMS_modbus.readHoldingRegisters(0x01, 0xD200, 0x0001);
-        //debugD("readHoldingRegisters(0x01, 0xD200, 0x0001) returned: %s", result ? "TRUE" : "FALSE");
         state_index = 0;
         break;
       }
@@ -577,8 +934,8 @@ void setupFansPumps(void) {
   // Periodic feedback of max motor/controller temp to hysteresis
   app.onRepeat(1000, [&]() {
     // Calculate the max of the 4 current temperatures (in Celsius, convert to Kelvin)
-    float temps_celsius[] = {portMotor_temperature, starboardMotor_temperature, 
-                             portController_temperature, starboardController_temperature};
+    float temps_celsius[] = {(float)portMotor_temperature, (float)starboardMotor_temperature, 
+                             (float)portController_temperature, (float)starboardController_temperature};
     float max_celsius = temps_celsius[0];
     for (int i = 1; i < 4; i++) {
       if (temps_celsius[i] > max_celsius) {
@@ -615,37 +972,41 @@ void setupShaftRpm(void) {
   pinMode(RpmProxyInputPin, INPUT);
   attachInterrupt(digitalPinToInterrupt(RpmProxyInputPin), isr, RISING);
   
-  // Create Signal K output for shaft RPM with metadata
-  auto* shaft_rpm_output = new SKOutputNumeric<float>(
-      "propulsion.0.speed", 
-      "/shaft_rpm",  // config path for WebUI
-      new SKMetadata(
-          "rpm",  // units
-          "Shaft RPM",  // display_name
-          "Propeller shaft rotational speed in revolutions per minute"  // description
-      )
+  // Create Signal K output for shaft RPM with metadata (in SI units: Hz)
+  auto* shaft_rpm_metadata = new SKMetadataWithZones(
+      "Hz",  // units (SI: Hertz)
+      "Shaft Speed",  // display_name
+      "Propeller shaft rotational speed in Hertz (multiply by 60 for RPM)"  // description
   );
   
-  // Zone configuration is handled through the WebUI interface
-  // Recommended zones in WebUI:
-  //   0-1000 RPM: Green (nominal)
-  //   1000-1200 RPM: Yellow (warn)
-  //   1200-1500 RPM: Orange (alarm)
-  //   1500+ RPM: Red (fault)
+  // Configure zones according to Signal K specification (in Hz):
+  //   0-16.67 Hz (0-1000 RPM): Nominal (Green)
+  shaft_rpm_metadata->add_zone(0, 16.67, "nominal", "Normal operating range");
+  //   16.67-20 Hz (1000-1200 RPM): Warning (Yellow)
+  shaft_rpm_metadata->add_zone(16.67, 20, "warn", "Approaching maximum");
+  //   20-25 Hz (1200-1500 RPM): Alarm (Orange)
+  shaft_rpm_metadata->add_zone(20, 25, "alarm", "Exceeding safe operating range");
+  //   25+ Hz (1500+ RPM): Fault (Red)
+  shaft_rpm_metadata->add_zone(25, "alarm", "Critical - shutdown required");
   
-  // Periodic update of shaft RPM to Signal K and motor runtime tracking
+  auto* shaft_rpm_output = new SKOutputNumeric<float>(
+      "propulsion.speed", 
+      "/shaft_rpm",  // config path for WebUI
+      shaft_rpm_metadata
+  );
+  
+  // Periodic update of shaft speed to Signal K and motor runtime tracking
   app.onRepeat(1000, [shaft_rpm_output]() {
     double frequency = clShaftFreq.getCurrentFrequency();
-    float rpm = frequency * 60;
-    shaft_rpm_output->set(rpm);
+    shaft_rpm_output->set(frequency);  // Send Hz directly (SI units)
     
-    // Track motor runtime: start when RPM > 100, stop when RPM < 20
-    if (rpm > 100.0f && !motors_running) {
+    // Track motor runtime: start when frequency > 1.67 Hz (~100 RPM), stop when frequency < 0.33 Hz (~20 RPM)
+    if (frequency > 1.67 && !motors_running) {
       motors_running = true;
-      debugI("Motors started - beginning runtime accumulation");
-    } else if (rpm < 20.0f && motors_running) {
+      // debugI("Motors started - beginning runtime accumulation");  // Disabled SK debug output
+    } else if (frequency < 0.33 && motors_running) {
       motors_running = false;
-      debugI("Motors stopped - paused runtime accumulation at %lu seconds", motor_runtime_seconds);
+      // debugI("Motors stopped - paused runtime accumulation at %lu seconds", motor_runtime_seconds);  // Disabled SK debug output
     }
     
     // Increment runtime when motors are running
@@ -655,7 +1016,8 @@ void setupShaftRpm(void) {
     }
     
     if (frequency > 0) {
-      debugI("Shaft RPM: %.0f (Zone determination in UI)", rpm);
+      float rpm = frequency * 60;
+      // debugI("Shaft Speed: %.2f Hz (%.0f RPM)", frequency, rpm);  // Disabled SK debug output
     }
   });
 }
@@ -678,6 +1040,78 @@ void setupTempSensors(void) {
   temp_sensor_coolant = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/CoolantTemp");
     
   debugI("OneWire sensors detected on pin %d", OneWirePin);
+  
+  // Temperature zone thresholds (converted to Kelvin):
+  // warn: 40°C = 313.15 K
+  // alarm: 70°C = 343.15 K
+  // emergency: 90°C = 363.15 K
+  
+  // Create Signal K outputs with zones for each temperature sensor
+  // Port Motor Temperature
+  auto* portMotor_metadata = new SKMetadataWithZones(
+      "K", "Port Motor Temperature", "Temperature of the port motor", "", -1.0);
+  portMotor_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  portMotor_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  portMotor_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
+  portMotor_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* portMotor_output = new SKOutputNumeric<float>(
+      "propulsion.port.temperature", "/portMotor_temp_sk", portMotor_metadata);
+  temp_sensor_portMotor->connect_to(portMotor_output);
+  
+  // Starboard Motor Temperature
+  auto* starboardMotor_metadata = new SKMetadataWithZones(
+      "K", "Starboard Motor Temperature", "Temperature of the starboard motor", "", -1.0);
+  starboardMotor_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  starboardMotor_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  starboardMotor_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
+  starboardMotor_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* starboardMotor_output = new SKOutputNumeric<float>(
+      "propulsion.starboard.temperature", "/starboardMotor_temp_sk", starboardMotor_metadata);
+  temp_sensor_starboardMotor->connect_to(starboardMotor_output);
+  
+  // Port Controller Temperature
+  auto* portController_metadata = new SKMetadataWithZones(
+      "K", "Port Controller Temperature", "Temperature of the port motor controller", "", -1.0);
+  portController_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  portController_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  portController_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
+  portController_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* portController_output = new SKOutputNumeric<float>(
+      "propulsion.port.controller_temperature", "/portController_temp_sk", portController_metadata);
+  temp_sensor_portController->connect_to(portController_output);
+  
+  // Starboard Controller Temperature
+  auto* starboardController_metadata = new SKMetadataWithZones(
+      "K", "Starboard Controller Temperature", "Temperature of the starboard motor controller", "", -1.0);
+  starboardController_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  starboardController_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  starboardController_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
+  starboardController_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* starboardController_output = new SKOutputNumeric<float>(
+      "propulsion.starboard.controller_temperature", "/starboardController_temp_sk", starboardController_metadata);
+  temp_sensor_starboardController->connect_to(starboardController_output);
+  
+  // Engine Room Temperature
+  auto* engineRoom_metadata = new SKMetadataWithZones(
+      "K", "Engine Room Temperature", "Ambient temperature in the engine room", "", -1.0);
+  engineRoom_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  engineRoom_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  engineRoom_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - check cooling");
+  engineRoom_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* engineRoom_output = new SKOutputNumeric<float>(
+      "environment.engineRoom.temperature", "/engineRoom_temp_sk", engineRoom_metadata);
+  temp_sensor_engineRoom->connect_to(engineRoom_output);
+  
+  // Coolant Temperature
+  auto* coolant_metadata = new SKMetadataWithZones(
+      "K", "Coolant Temperature", "Temperature of the engine coolant", "", -1.0);
+  coolant_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
+  coolant_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
+  coolant_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - check cooling system");
+  coolant_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
+  auto* coolant_output = new SKOutputNumeric<float>(
+      "environment.coolant.temperature", "/coolant_temp_sk", coolant_metadata);
+  temp_sensor_coolant->connect_to(coolant_output);
   
   // Config Items for the UI
   ConfigItem(temp_sensor_portMotor)
@@ -708,10 +1142,10 @@ void setupTempSensors(void) {
 
   // Connect temperature sensors to global variables and Signal K outputs
   // Create Signal K outputs
-  auto* port_motor_sk = new SKOutputFloat("propulsion.port.temperature");
-  auto* starboard_motor_sk = new SKOutputFloat("propulsion.starboard.temperature");
-  auto* port_ctrl_sk = new SKOutputFloat("electrical.controllers.port.temperature");
-  auto* starboard_ctrl_sk = new SKOutputFloat("electrical.controllers.starboard.temperature");
+  auto* port_motor_sk = new SKOutputFloat("propulsion.port.motor.temperature");
+  auto* starboard_motor_sk = new SKOutputFloat("propulsion.starboard.motor.temperature");
+  auto* port_ctrl_sk = new SKOutputFloat("propulsion.port.controller.temperature");
+  auto* starboard_ctrl_sk = new SKOutputFloat("propulsion.starboard.controller.temperature");
   auto* engine_room_sk = new SKOutputFloat("propulsion.engineRoom.temperature");
   auto* coolant_sk = new SKOutputFloat("propulsion.coolant.temperature");
   
@@ -802,7 +1236,7 @@ void setupThrottle(void) {
   
   // Create Signal K output for ADC throttle input
   auto* adc_throttle_output = new SKOutputNumeric<float>(
-      "propulsion.0.throttlePosition",
+      "propulsion.helm.throttlePosition",
       "/adc_throttle",
       new SKMetadata("ratio", "ADC Throttle", "Throttle lever position from ADC potentiometer (0-100%)")
   );
@@ -828,17 +1262,17 @@ void setupThrottle(void) {
     if (voltage < neutral_lower) {
       // Reverse direction (below neutral) - negative throttle
       // Maps neutral_lower = 0%, 0V = -100%
-      throttle_percent = ((neutral_lower - voltage) / neutral_lower) * -100.0f;
+      throttle_percent = ((neutral_lower - voltage) / neutral_lower);
     } else if (voltage > neutral_upper) {
       // Forward direction (above neutral) - positive throttle
       // Maps neutral_upper = 0%, adc_reference_voltage = 100%
-      throttle_percent = ((voltage - neutral_upper) / (adc_reference_voltage - neutral_upper)) * 100.0f;
+      throttle_percent = ((voltage - neutral_upper) / (adc_reference_voltage - neutral_upper));
     }
     // else: within neutral hysteresis band, throttle_percent remains 0.0f
     
     // Clamp to -100 to +100
-    if (throttle_percent > 100.0f) throttle_percent = 100.0f;
-    if (throttle_percent < -100.0f) throttle_percent = -100.0f;
+    if (throttle_percent > 1.0f) throttle_percent = 1.0f;
+    if (throttle_percent < -1.0f) throttle_percent = -1.0f;
     
     // Apply idle mode: if throttle is between -IDLE_THRESHOLD and +IDLE_THRESHOLD, set to idle throttle
     if (throttle_percent > 0.0f && throttle_percent < throttle_idle_threshold) {
@@ -852,7 +1286,7 @@ void setupThrottle(void) {
     
     // Send throttle command to both motors (Port and Starboard)
     // Convert throttle percentage to target current using max phase current variable
-    int16_t target_current = (int16_t)((throttle_percent / 100.0f) * max_phase_current);
+    int16_t target_current = (int16_t)((throttle_percent) * max_phase_current);
     
     // Send to Port motor
     myKerCan.McuPort.SendCommand(target_current, 0, 0);
@@ -867,19 +1301,18 @@ void setupThrottle(void) {
   // THROTTLE FEEDBACK - From both motor controllers
   // =========================================================
   
-  // Create Signal K outputs for both motor throttle feedback
+ /*  // Create Signal K outputs for both motor throttle feedback
   auto* port_throttle_fb = new SKOutputNumeric<float>(
-      "propulsion.0.port.throttlePosition",
+      "propulsion.port.throttlePosition",
       "/port_throttle_fb",
       new SKMetadata("ratio", "Port Motor Throttle", "Throttle feedback from Port motor controller")
   );
   
   auto* starboard_throttle_fb = new SKOutputNumeric<float>(
-      "propulsion.1.throttlePosition",
+      "propulsion.starboard.throttlePosition",
       "/starboard_throttle_fb",
       new SKMetadata("ratio", "Starboard Motor Throttle", "Throttle feedback from Starboard motor controller")
   );
-  
   // Read motor throttle feedback every 1000ms
   app.onRepeat(1000, [port_throttle_fb, starboard_throttle_fb]() {
     // Port motor throttle feedback
@@ -899,4 +1332,5 @@ void setupThrottle(void) {
     //debugD("Port throttle: %.0f%% | Starboard throttle: %.0f%%", 
     //       port_throttle_percent, starboard_throttle_percent);
   });
+  */
 }
