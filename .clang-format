@@ -1,3 +1,6 @@
----
-BasedOnStyle: Google
+
+BasedOnStyle: LLVM
 IndentWidth: 2
+ColumnLimit: 200
+PointerAlignment: Left
+SortIncludes: true

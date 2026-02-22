@@ -178,7 +178,7 @@ ModbusResponse* esp32ModbusRTU::_receive(ModbusRequest* request) {
     if (_serial->available()) {
       uint8_t byte = _serial->read();
       if (!firstByteReceived) {
-        debugI("[MODBUS] First byte received after %d ms (0x%02x)", millis() - startTime, byte);
+        //debugI("[MODBUS] First byte received after %d ms (0x%02x)", millis() - startTime, byte);
       }
       //debugD("[MODBUS] Received byte: 0x%02x", byte);
       response->add(byte);
@@ -188,7 +188,7 @@ ModbusResponse* esp32ModbusRTU::_receive(ModbusRequest* request) {
     
     // Keep reading for 200ms after the first byte starts arriving, then give 100ms grace period for stragglers
     if (firstByteReceived && (millis() - lastByteTime > 100)) {
-      debugI("[MODBUS] Response complete! Got %d bytes (waited %d ms for full response)", response->getSize(), millis() - startTime);
+      //debugI("[MODBUS] Response complete! Got %d bytes (waited %d ms for full response)", response->getSize(), millis() - startTime);
       _lastMillis = millis();
       break;
     }

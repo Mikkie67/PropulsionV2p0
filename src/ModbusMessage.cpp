@@ -277,7 +277,7 @@ bool ModbusResponse::isSucces() {
   // TODO(bertmelis): add other checks
   } else {
     _error = esp32Modbus::SUCCES;
-    debugI("ModbusResponse: SUCCESS - valid response");
+    //debugI("ModbusResponse: SUCCESS - valid response");
   }
   if (_error == esp32Modbus::SUCCES) {
     return true;
@@ -295,9 +295,9 @@ bool ModbusResponse::checkCRC() {
   
   // Debug output for CRC validation
   //ebugI("CRC CHECK - Length=%d bytes", _length);
-  
+  /*
   // Show received data
-  /* debugI("  Received data: ");
+   debugI("  Received data: ");
   for (uint8_t i = 0; i < _length; i++) {
     if (i % 16 == 0) debugI("");
     debugI("%02X ", _buffer[i]);
@@ -307,8 +307,8 @@ bool ModbusResponse::checkCRC() {
   debugI("  Received CRC: 0x%02X%02X (low=0x%02X, high=0x%02X)", 
          recv_crc_high, recv_crc_low, recv_crc_low, recv_crc_high);
   debugI("  Calculated CRC: 0x%02X%02X (low=0x%02X, high=0x%02X)", 
-         calc_crc_high, calc_crc_low, calc_crc_low, calc_crc_high);
-  */
+         calc_crc_high, calc_crc_low, calc_crc_low, calc_crc_high);*/
+  
   // Check if they match
   bool match = (calc_crc_low == recv_crc_low && calc_crc_high == recv_crc_high);
   //debugI("  CRC Match: %s", match ? "YES ✓" : "NO ✗");

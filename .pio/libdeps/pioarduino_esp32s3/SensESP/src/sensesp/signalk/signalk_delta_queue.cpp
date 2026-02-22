@@ -33,6 +33,7 @@ void SKDeltaQueue::append(const String& val) {
     buffer.pop_back();
   }
   buffer.push_front(val);
+  //debugD("current buffer contents: %s", val.c_str());
   release_semaphore();
 }
 

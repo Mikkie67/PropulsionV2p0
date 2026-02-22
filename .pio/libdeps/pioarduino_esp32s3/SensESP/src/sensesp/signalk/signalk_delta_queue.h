@@ -19,6 +19,8 @@ class SKDeltaQueue {
   void append(const String& val);
   bool data_available();
   void get_delta(String& output);
+  // Adds Signal K meta data to the specified document
+  void add_metadata(JsonArray updates);
 
   void connect_emitters();
 
@@ -49,8 +51,6 @@ class SKDeltaQueue {
     return size;
   }
 
-  // Adds Signal K meta data to the specified document
-  void add_metadata(JsonArray updates);
 
   SemaphoreHandle_t semaphore_ = NULL;
 };
