@@ -1,0 +1,74 @@
+D (15942) main.cpp: Cell metadata delta:
+D (15942) main.cpp: 
+{"path":"electrical.batteries.bat01.cells.cell1","value":{"units":"V","description":"Battery 01 cell voltage","displayName":"Cell 1","zones":[{"lower":2.6,"state":"fault","message":"Cell voltage critically low"},{"lower":2.9,"state":"warn","message":"Cell voltage low"},{"upper":3.55,"state":"warn","message":"Cell voltage high"},{"upper":3.65,"state":"fault","message":"Cell voltage critically high"}]}}
+D (15977) signalk_delta_queue.cpp: delta: 
+{"updates":[{"source":{"label":"Propulsion5"},"values":[]}]}
+D (15986) main.cpp: {"updates":[{"source":{"label":"Propulsion5"},"values":[]}]}
+D (15994) signalk_delta_queue.cpp: delta: {"updates":[{"source":{"label":"Propulsion5"},"values":[Dummy Delta]}]}
+D (16003) main.cpp: {"updates":[{"source":{"label":"Propulsion5"},"values":[Dummy Delta]}]}
+E (25956) signalk_ws_client.cpp: deserializeJson error: EmptyInput
+
+D (15992) main.cpp: {"path":"electrical.batteries.bat01.cells.cell1","value":{"units":"V","description":"Battery 01 cell voltage","displayName":"Cell 1","zones":[{"lower":2.6,"state":"fault","message":"Cell voltage critically low"},{"lower":2.9,"state":"warn","message":"Cell voltage low"},{"upper":3.55,"state":"warn","message":"Cell voltage high"},{"upper":3.65,"state":"fault","message":"Cell voltage critically high"}]}}
+D (16029) signalk_delta_queue.cpp: delta: {"updates":[{"source":{"label":"Propulsion5"},"values":[]}]}
+D (16038) main.cpp: {"updates":[{"source":{"label":"Propulsion5"},"values":[]}]}
+D (16045) signalk_delta_queue.cpp: delta: {"updates":[{"source":{"label":"Propulsion5"},"values":[Dummy Delta]}]}
+D (16055) main.cpp: {"updates":[{"source":{"label":"Propulsion5"},"values":[Dummy Delta]}]}
+E (26211) signalk_ws_client.cpp: deserializeJson error: EmptyInput
+
+D (61685) signalk_delta_queue.cpp: delta: 
+{
+"updates":
+[
+{
+    "meta":
+    [
+        {
+            "path":"electrical.batteries.bat01.cells.cell1",
+            "value":{
+                "units":"V",
+                "description":"Battery 01 cell voltage",
+                "displayName":"Cell 1",
+                "zones":[{
+                    "lower":2.6,
+                    "state":"fault",
+                    "message":"Cell voltage critically low"},{
+                    "lower":2.9,
+                    "state":"warn"
+                    ,"message":"Cell voltage low"},{
+                    "upper":3.55,
+                    "state":"warn",
+                    "message":"Cell voltage high"},{
+                    "upper":3.65,
+                    "state":"fault",
+                    "message":"Cell voltage critically high"}]}
+        },
+        {
+            "path":"electrical.batteries.bat01.cells.cell1",
+            "value":{
+                "units":"V",
+                "description":"Battery 01 cell voltage",
+                "displayName":"Cell 1",
+                "zones":[{
+                    "lower":2.6,
+                    "state":"fault",
+                    "message":"Cell voltage critically low"},{
+                    "lower":2.9,
+                    "state":"warn",
+                    "message":"Cell voltage low"},{
+                    "upper":3.55,
+                    "state":"warn",
+                    "message":"Cell voltage high"},{
+                    "upper":3.65,
+                    "state":"fault",
+                    "message":"Cell voltage critically high"}]}
+        }
+    ]
+},
+{
+    "source":{"label":"Propulsion5"},
+    "values":[Dummy Delta]
+}
+]
+}
+E (71313) signalk_ws_client.cpp: deserializeJson error: EmptyInput
+

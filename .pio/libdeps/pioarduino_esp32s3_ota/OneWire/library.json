@@ -1,0 +1,36 @@
+{
+    "name": "OneWire",
+    "keywords": "OneWire, SensESP, Signal K, marine, boat, sensor, hardware, embedded, device",
+    "description": "OneWire temperature device support for the SensESP sensor framework",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/SensESP/OneWire.git"
+    },
+    "authors": [
+        {
+            "name": "Matti Airas",
+            "email": "mairas@iki.fi",
+            "url": "https://github.com/mairas/",
+            "maintainer": true
+        },
+        {
+            "name": "Brian Smith",
+            "url": "https://github.com/ba58smith/"
+        }
+    ],
+    "dependencies": [
+        {
+            "name": "OneWireNg",
+            "owner": "pstolarz",
+            "version": "^0.13.2"
+        },
+        {
+            "name": "SensESP",
+            "owner": "SignalK",
+            "version": ">=3.0.0-beta.3,<4.0.0-alpha.1"
+        }
+    ],
+    "version": "3.0.2",
+    "frameworks": "arduino",
+    "platforms": "*"
+}

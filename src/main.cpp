@@ -172,6 +172,9 @@ std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_fan_hyst = nullptr;
 std::shared_ptr<sensesp::Hysteresis<float, bool>> coolant_pump_hyst = nullptr;
 std::shared_ptr<sensesp::Hysteresis<float, bool>> ambient_fan_hyst = nullptr;
 
+sBMS_data_t sBMS0_data;
+sBMS_data_t sBMS1_data;
+
 // =========================================================
 // FAN/PUMP Control functions
 // =========================================================
@@ -249,23 +252,20 @@ void send_cell_metadata_example() {
   bat01_cell_metadata->add_zone(2.9f, NAN, String("warn"), String("Cell voltage low"));
   bat01_cell_metadata->add_zone(NAN, 3.55f, String("warn"), String("Cell voltage high"));
   bat01_cell_metadata->add_zone(NAN, 3.65f, String("fault"), String("Cell voltage critically high"));
-  auto* bat01_cells_output =
-      new SKOutputNumeric<float>("electrical.batteries.bat01.cells.cell1", "/bat01_cell1", bat01_cell_metadata);
+  auto* bat01_cells_output = new SKOutputNumeric<float>("electrical.batteries.bat01.cells.cell1", "/bat01_cell1", bat01_cell_metadata);
 
-  auto* bat01_voltage_metadata =
-      new signalk_extended_metadata("V", "Battery 01 Voltage", "Forward battery pack voltage");
+  auto* bat01_voltage_metadata = new signalk_extended_metadata("V", "Battery 01 Voltage", "Forward battery pack voltage");
   bat01_voltage_metadata->add_zone(0, 45, "alarm", "Battery voltage critically low");
   bat01_voltage_metadata->add_zone(45, 48, "warn", "Battery voltage low");
   bat01_voltage_metadata->add_zone(48, 55, "normal", "Normal operating voltage");
   bat01_voltage_metadata->add_zone(55, 60, "alarm", "Battery voltage overvoltage condition");
-  auto* bat01_voltage_output =
-      new SKOutputNumeric<float>("electrical.batteries.bat01.voltage", "/bat01_voltage", bat01_voltage_metadata);
+  auto* bat01_voltage_output = new SKOutputNumeric<float>("electrical.batteries.bat01.voltage", "/bat01_voltage", bat01_voltage_metadata);
 
   app.onRepeat(1000, [bat01_cells_output, bat01_voltage_output]() {
     debugD("Updating cell voltage and sending SK delta with metadata zones");
     bat01_cells_output->set(10.0f);   // Example value to trigger zones
     bat01_voltage_output->set(50.0f); // Example value to trigger zones
-    });
+  });
   // });
 }
 // Build and send a standards-compliant Signal K metadata delta for a cell
@@ -355,38 +355,11 @@ void setup() {
   // IVOR setupThrottle();
   setupLcdDisplay();
   // IVOR setupKerPropCanBus();
-  setupBms(sDisplayData);
-  // IVOR setupTempSensors();
+  setupBms();
+  setupTempSensors();
   // IVOR setupFansPumps();
   // IVOR setupShaftRpm();
   debugD("setup complete");
-
-   // Send metadata when Signal K websocket is connected, in batches
-  app.onRepeat(500, []() {
-    // Check actual websocket connection status
-    auto ws_client = sensesp_app->get_ws_client();
-    if (ws_client && ws_client->is_connected()) {
-      if (!was_signalk_connected) {
-        debugI("✓ Signal K websocket connected, starting metadata send");
-        was_signalk_connected = true;
-        // send_cell_metadata_delta_sk()
-        
-        // send_cell_metadata_example();
-
-        // Always rebuild metadata on new connection
-        // build_all_bms_metadata();
-        metadata_batch_index = 0;
-      }
-      // Send next batch if we haven't sent all yet
-      if (metadata_batch_index * 10 < (int)cell_metadata_messages.size()) {
-        // send_cell_metadata_batch();
-      }
-    } else {
-      was_signalk_connected = false;
-    }
-  });
- // send_cell_metadata_example();
-
 
   // Start networking, SK server connections and other SensESP internals
   debugD("Starting sensesp_app->start()");
@@ -395,7 +368,6 @@ void setup() {
   sensesp_app->start();
   debugD("sensesp_app->start() complete");
 
- 
   /*// Force WiFi AP mode if not already in AP mode
   if ((WiFi.getMode() & WIFI_AP) == 0) {
     debugW("WiFi AP not active! Forcing AP mode...");
@@ -474,10 +446,24 @@ void setupLcdDisplay(void) {
   sDisplayData.ShaftRpm = -1;
   createDynamicElements(&tft, sDisplayData);
   app.onRepeat(1000, [&]() {
-    sDisplayData.UpTime = millis() / 1000; // Use actual system time instead of counting
+    sDisplayData.UpTime = millis() / 1000; // system time
     // Update shaft RPM display (convert from Hz to RPM for LCD display)
     double frequency = clShaftFreq.getCurrentFrequency();
     sDisplayData.ShaftRpm = (int32_t)(frequency * 60); // Convert Hz to RPM for display
+    sDisplayData.Starboard.MotorRpm = -1;
+    sDisplayData.Starboard.PhaseCurrent = -1;
+    sDisplayData.Starboard.ControllerCommsOk = false;
+    sDisplayData.ForwardBattery.Voltage = sBMS0_data.sVcellStatistics.wVbat;
+    sDisplayData.ForwardBattery.Current = sBMS0_data.sCurrentSocHeatCoolFault.wIdischarge;
+    sDisplayData.ForwardBattery.SoC = sBMS0_data.sCurrentSocHeatCoolFault.wSOC;
+    sDisplayData.ForwardBattery.Temp = sBMS0_data.sTemperatures.wTempMax;
+    sDisplayData.ForwardBattery.BmsCommsOk = (sBMS0_data.sVcellStatistics.wVbat != -1);
+    sDisplayData.AftBattery.Voltage = sBMS1_data.sVcellStatistics.wVbat;
+    sDisplayData.AftBattery.Current = sBMS1_data.sCurrentSocHeatCoolFault.wIdischarge;
+    sDisplayData.AftBattery.SoC = sBMS1_data.sCurrentSocHeatCoolFault.wSOC;
+    sDisplayData.AftBattery.Temp = sBMS1_data.sTemperatures.wTempMax;
+    sDisplayData.AftBattery.BmsCommsOk = (sBMS1_data.sVcellStatistics.wVbat != -1);
+
     createDynamicElements(&tft, sDisplayData);
   });
   // TODO testLcd();
@@ -525,12 +511,11 @@ void setupFansPumps(void) {
   // COOLANT FAN - Controlled by coolant temperature
   // =========================================================
   // Initialize hysteresis transform for coolant fan control
-  coolant_fan_hyst =
-      std::make_shared<sensesp::Hysteresis<float, bool>>(303.15f, // lower threshold (OFF) in Kelvin (30°C)
-                                                         305.15f, // upper threshold (ON) in Kelvin (32°C)
-                                                         false,   // low_output
-                                                         true,    // high_output
-                                                         "/coolant_fan_control");
+  coolant_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(303.15f, // lower threshold (OFF) in Kelvin (30°C)
+                                                                        305.15f, // upper threshold (ON) in Kelvin (32°C)
+                                                                        false,   // low_output
+                                                                        true,    // high_output
+                                                                        "/coolant_fan_control");
 
   temp_sensor_coolant->connect_to(coolant_fan_hyst)->connect_to(coolant_fan_cmd);
   ConfigItem(coolant_fan_hyst.get())
@@ -542,12 +527,11 @@ void setupFansPumps(void) {
   // COOLANT PUMP - ON if ANY motor/controller exceeds threshold, OFF when ALL below
   // =========================================================
   // Initialize hysteresis transform for coolant pump control using max motor/controller temp
-  coolant_pump_hyst =
-      std::make_shared<sensesp::Hysteresis<float, bool>>(313.15f, // lower threshold (OFF) in Kelvin (40°C)
-                                                         315.15f, // upper threshold (ON) in Kelvin (42°C)
-                                                         false,   // low_output
-                                                         true,    // high_output
-                                                         "/coolant_pump_control");
+  coolant_pump_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(313.15f, // lower threshold (OFF) in Kelvin (40°C)
+                                                                         315.15f, // upper threshold (ON) in Kelvin (42°C)
+                                                                         false,   // low_output
+                                                                         true,    // high_output
+                                                                         "/coolant_pump_control");
 
   coolant_pump_hyst->connect_to(coolant_pump_cmd);
   ConfigItem(coolant_pump_hyst.get())
@@ -559,8 +543,7 @@ void setupFansPumps(void) {
   // Periodic feedback of max motor/controller temp to hysteresis
   app.onRepeat(1000, [&]() {
     // Calculate the max of the 4 current temperatures (in Celsius, convert to Kelvin)
-    float temps_celsius[] = {(float)portMotor_temperature, (float)starboardMotor_temperature,
-                             (float)portController_temperature, (float)starboardController_temperature};
+    float temps_celsius[] = {(float)portMotor_temperature, (float)starboardMotor_temperature, (float)portController_temperature, (float)starboardController_temperature};
     float max_celsius = temps_celsius[0];
     for (int i = 1; i < 4; i++) {
       if (temps_celsius[i] > max_celsius) {
@@ -575,18 +558,14 @@ void setupFansPumps(void) {
   // AMBIENT FAN - Controlled by engine room temperature
   // =========================================================
   // Initialize hysteresis transform for ambient fan control
-  ambient_fan_hyst =
-      std::make_shared<sensesp::Hysteresis<float, bool>>(308.15f, // lower threshold (OFF) in Kelvin (35°C)
-                                                         310.15f, // upper threshold (ON) in Kelvin (37°C)
-                                                         false,   // low_output
-                                                         true,    // high_output
-                                                         "/ambient_fan_control");
+  ambient_fan_hyst = std::make_shared<sensesp::Hysteresis<float, bool>>(308.15f, // lower threshold (OFF) in Kelvin (35°C)
+                                                                        310.15f, // upper threshold (ON) in Kelvin (37°C)
+                                                                        false,   // low_output
+                                                                        true,    // high_output
+                                                                        "/ambient_fan_control");
 
   temp_sensor_engineRoom->connect_to(ambient_fan_hyst)->connect_to(ambient_fan_cmd);
-  ConfigItem(ambient_fan_hyst.get())
-      ->set_title("Ambient Fan Control")
-      ->set_description("Hysteresis control for engine room ambient temperature cooling.")
-      ->set_sort_order(102);
+  ConfigItem(ambient_fan_hyst.get())->set_title("Ambient Fan Control")->set_description("Hysteresis control for engine room ambient temperature cooling.")->set_sort_order(102);
 }
 void setupShaftRpm(void) {
   // Shaft RPM monitoring - reads pulses from propeller speed sensor via interrupt
@@ -597,11 +576,10 @@ void setupShaftRpm(void) {
   attachInterrupt(digitalPinToInterrupt(RpmProxyInputPin), isr, RISING);
 
   // Create Signal K output for shaft RPM with metadata (in SI units: Hz)
-  signalk_extended_metadata* shaft_rpm_metadata =
-      new signalk_extended_metadata("Hz",          // units (SI: Hertz)
-                                    "Shaft Speed", // display_name
-                                    "Propeller shaft rotational speed in Hertz (multiply by 60 for RPM)" // description
-      );
+  signalk_extended_metadata* shaft_rpm_metadata = new signalk_extended_metadata("Hz",                                                                // units (SI: Hertz)
+                                                                                "Shaft Speed",                                                       // display_name
+                                                                                "Propeller shaft rotational speed in Hertz (multiply by 60 for RPM)" // description
+  );
 
   // Configure zones according to Signal K specification (in Hz):
   //   0-16.67 Hz (0-1000 RPM): Nominal (Green)
@@ -651,17 +629,16 @@ void setupTempSensors(void) {
   // Give the OneWire sensor(s) time to stabilize and be ready before bus scan
   // Sensor power-up and response time is critical for proper discovery
   debugI("Initializing OneWire bus on pin %d, waiting for sensor stabilization...", OneWirePin);
-  delay(1000);
+  delay(1000); // TODO is this delay really required??
 
   // Initialize OneWire sensors AFTER sensesp_app is created in setup()
   dts = new DallasTemperatureSensors(OneWirePin);
-  temp_sensor_portMotor = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/portMotorTemp");
-  temp_sensor_starboardMotor = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/starboardMotorTemp");
-  temp_sensor_portController = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/portControllerTemp");
-  temp_sensor_starboardController =
-      new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/starboardControllerTemp");
-  temp_sensor_engineRoom = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/EngineRoomTemp");
-  temp_sensor_coolant = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/2_oneWire/CoolantTemp");
+  temp_sensor_portMotor = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/oneWire/portMotorTemp");
+  temp_sensor_starboardMotor = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/oneWire/starboardMotorTemp");
+  temp_sensor_portController = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/oneWire/portControllerTemp");
+  temp_sensor_starboardController = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/oneWire/starboardControllerTemp");
+  temp_sensor_engineRoom = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/oneWire/EngineRoomTemp");
+  temp_sensor_coolant = new OneWireTemperature(dts, TEMP_SENSOR_READ_INTERVAL, "/oneWire/CoolantTemp");
 
   debugI("OneWire sensors detected on pin %d", OneWirePin);
 
@@ -672,96 +649,66 @@ void setupTempSensors(void) {
 
   // Create Signal K outputs with zones for each temperature sensor
   // Port Motor Temperature
-  signalk_extended_metadata* portMotor_metadata =
-      new signalk_extended_metadata("K", "Port Motor Temperature", "Temperature of the port motor", "", -1.0);
+  signalk_extended_metadata* portMotor_metadata = new signalk_extended_metadata("K", "Port Motor Temperature", "Temperature of the port motor", "", -1.0);
   portMotor_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
   portMotor_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
   portMotor_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
   portMotor_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
-  SKOutputNumeric<float>* portMotor_output =
-      new SKOutputNumeric<float>("propulsion.port.temperature", "/portMotor_temp_sk", portMotor_metadata);
+  SKOutputNumeric<float>* portMotor_output = new SKOutputNumeric<float>("propulsion.port.temperature", "/portMotor_temp_sk", portMotor_metadata);
   temp_sensor_portMotor->connect_to(portMotor_output);
 
   // Starboard Motor Temperature
-  signalk_extended_metadata* starboardMotor_metadata =
-      new signalk_extended_metadata("K", "Starboard Motor Temperature", "Temperature of the starboard motor", "", -1.0);
+  signalk_extended_metadata* starboardMotor_metadata = new signalk_extended_metadata("K", "Starboard Motor Temperature", "Temperature of the starboard motor", "", -1.0);
   starboardMotor_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
   starboardMotor_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
   starboardMotor_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
   starboardMotor_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
-  SKOutputNumeric<float>* starboardMotor_output = new SKOutputNumeric<float>(
-      "propulsion.starboard.temperature", "/starboardMotor_temp_sk", starboardMotor_metadata);
+  SKOutputNumeric<float>* starboardMotor_output = new SKOutputNumeric<float>("propulsion.starboard.temperature", "/starboardMotor_temp_sk", starboardMotor_metadata);
   temp_sensor_starboardMotor->connect_to(starboardMotor_output);
 
   // Port Controller Temperature
-  signalk_extended_metadata* portController_metadata = new signalk_extended_metadata(
-      "K", "Port Controller Temperature", "Temperature of the port motor controller", "", -1.0);
+  signalk_extended_metadata* portController_metadata = new signalk_extended_metadata("K", "Port Controller Temperature", "Temperature of the port motor controller", "", -1.0);
   portController_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
   portController_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
   portController_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
   portController_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
-  SKOutputNumeric<float>* portController_output = new SKOutputNumeric<float>(
-      "propulsion.port.controller_temperature", "/portController_temp_sk", portController_metadata);
+  SKOutputNumeric<float>* portController_output = new SKOutputNumeric<float>("propulsion.port.controller_temperature", "/portController_temp_sk", portController_metadata);
   temp_sensor_portController->connect_to(portController_output);
 
   // Starboard Controller Temperature
-  signalk_extended_metadata* starboardController_metadata = new signalk_extended_metadata(
-      "K", "Starboard Controller Temperature", "Temperature of the starboard motor controller", "", -1.0);
+  signalk_extended_metadata* starboardController_metadata = new signalk_extended_metadata("K", "Starboard Controller Temperature", "Temperature of the starboard motor controller", "", -1.0);
   starboardController_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
   starboardController_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
   starboardController_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - reduce load");
   starboardController_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
-  SKOutputNumeric<float>* starboardController_output = new SKOutputNumeric<float>(
-      "propulsion.starboard.controller_temperature", "/starboardController_temp_sk", starboardController_metadata);
+  SKOutputNumeric<float>* starboardController_output = new SKOutputNumeric<float>("propulsion.starboard.controller_temperature", "/starboardController_temp_sk", starboardController_metadata);
   temp_sensor_starboardController->connect_to(starboardController_output);
 
   // Engine Room Temperature
-  signalk_extended_metadata* engineRoom_metadata =
-      new signalk_extended_metadata("K", "Engine Room Temperature", "Ambient temperature in the engine room", "", -1.0);
+  signalk_extended_metadata* engineRoom_metadata = new signalk_extended_metadata("K", "Engine Room Temperature", "Ambient temperature in the engine room", "", -1.0);
   engineRoom_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
   engineRoom_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
   engineRoom_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - check cooling");
   engineRoom_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
-  SKOutputNumeric<float>* engineRoom_output =
-      new SKOutputNumeric<float>("environment.engineRoom.temperature", "/engineRoom_temp_sk", engineRoom_metadata);
+  SKOutputNumeric<float>* engineRoom_output = new SKOutputNumeric<float>("environment.engineRoom.temperature", "/engineRoom_temp_sk", engineRoom_metadata);
   temp_sensor_engineRoom->connect_to(engineRoom_output);
 
   // Coolant Temperature
-  signalk_extended_metadata* coolant_metadata =
-      new signalk_extended_metadata("K", "Coolant Temperature", "Temperature of the engine coolant", "", -1.0);
+  signalk_extended_metadata* coolant_metadata = new signalk_extended_metadata("K", "Coolant Temperature", "Temperature of the engine coolant", "", -1.0);
   coolant_metadata->add_zone(0, 313.15, "normal", "Normal operating range");
   coolant_metadata->add_zone(313.15, 343.15, "warn", "Approaching thermal limit");
   coolant_metadata->add_zone(343.15, 363.15, "alarm", "Thermal alarm - check cooling system");
   coolant_metadata->add_zone(363.15, "emergency", "Critical temperature - shutdown required");
-  SKOutputNumeric<float>* coolant_output =
-      new SKOutputNumeric<float>("environment.coolant.temperature", "/coolant_temp_sk", coolant_metadata);
+  SKOutputNumeric<float>* coolant_output = new SKOutputNumeric<float>("environment.coolant.temperature", "/coolant_temp_sk", coolant_metadata);
   temp_sensor_coolant->connect_to(coolant_output);
 
   // Config Items for the UI
-  ConfigItem(temp_sensor_portMotor)
-      ->set_title("Port Motor Temperature Sensor")
-      ->set_description("Temperature sensor for the port motor.")
-      ->set_sort_order(200);
-  ConfigItem(temp_sensor_starboardMotor)
-      ->set_title("Starboard Motor Temperature Sensor")
-      ->set_description("Temperature sensor for the starboard motor.")
-      ->set_sort_order(201);
-  ConfigItem(temp_sensor_portController)
-      ->set_title("Port Controller Temperature Sensor")
-      ->set_description("Temperature sensor for the port motor controller.")
-      ->set_sort_order(202);
-  ConfigItem(temp_sensor_starboardController)
-      ->set_title("Starboard Controller Temperature Sensor")
-      ->set_description("Temperature sensor for the starboard motor controller.")
-      ->set_sort_order(203);
-  ConfigItem(temp_sensor_engineRoom)
-      ->set_title("Engine Room Temperature Sensor")
-      ->set_description("Temperature sensor for the engine room ambient temperature.")
-      ->set_sort_order(204);
-  ConfigItem(temp_sensor_coolant)
-      ->set_title("Coolant Temperature Sensor")
-      ->set_description("Temperature sensor for the motor coolant temperature.")
-      ->set_sort_order(205);
+  ConfigItem(temp_sensor_portMotor)->set_title("Port Motor Temperature Sensor")->set_description("Temperature sensor for the port motor.")->set_sort_order(200);
+  ConfigItem(temp_sensor_starboardMotor)->set_title("Starboard Motor Temperature Sensor")->set_description("Temperature sensor for the starboard motor.")->set_sort_order(201);
+  ConfigItem(temp_sensor_portController)->set_title("Port Controller Temperature Sensor")->set_description("Temperature sensor for the port motor controller.")->set_sort_order(202);
+  ConfigItem(temp_sensor_starboardController)->set_title("Starboard Controller Temperature Sensor")->set_description("Temperature sensor for the starboard motor controller.")->set_sort_order(203);
+  ConfigItem(temp_sensor_engineRoom)->set_title("Engine Room Temperature Sensor")->set_description("Temperature sensor for the engine room ambient temperature.")->set_sort_order(204);
+  ConfigItem(temp_sensor_coolant)->set_title("Coolant Temperature Sensor")->set_description("Temperature sensor for the motor coolant temperature.")->set_sort_order(205);
 
   // Connect temperature sensors to global variables and Signal K outputs
   // Create Signal K outputs
@@ -846,9 +793,8 @@ void setupThrottle(void) {
   ConfigItem(config_max_phase_current);
 
   // Create Signal K output for ADC throttle input
-  auto* adc_throttle_output = new SKOutputNumeric<float>(
-      "propulsion.helm.throttlePosition", "/adc_throttle",
-      new SKMetadata("ratio", "ADC Throttle", "Throttle lever position from ADC potentiometer (0-100%)"));
+  auto* adc_throttle_output =
+      new SKOutputNumeric<float>("propulsion.helm.throttlePosition", "/adc_throttle", new SKMetadata("ratio", "ADC Throttle", "Throttle lever position from ADC potentiometer (0-100%)"));
 
   // Update adc_midpoint_voltage based on current reference voltage
   adc_midpoint_voltage = adc_reference_voltage / 2.0f;

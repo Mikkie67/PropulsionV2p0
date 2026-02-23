@@ -8,44 +8,44 @@ constexpr int kBMSInputBufferLength = 164;
 
 typedef struct VcellStatistics
 {
-  float wVcellMax;
-  float wVcellMin;
-  float wMaxPosition;
-  float wMinPosition;
-  float wVdelta;
-  float wVbat;
+  float wVcellMax = -1.0f;
+  float wVcellMin = -1.0f;
+  float wMaxPosition = -1.0f;
+  float wMinPosition = -1.0f;
+  float wVdelta = -1.0f;
+  float wVbat = -1.0f;
 } sVcelStatistics_t;
 typedef struct 
 {
-  float wTemp[6];
-  float wTempEnv[3];
-  float wTempMOS;
-  float wTempMax;
-  float wTempMin;
+  float wTemp[6] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+  float wTempEnv[3] = { -1.0f, -1.0f, -1.0f };
+  float wTempMOS = -1.0f;
+  float wTempMax = -1.0f;
+  float wTempMin = -1.0f;
 } sTemperatures_t;
 
 typedef struct 
 {
-  float wIcharge;
-  float wIdischarge;
-  float wSOC;
-  float wSOH;
-  float wResmA;
-  float wFullmA;
-  float wFacmA;
-  float wCycleTime;
-  float wFaultFirst;
-  float wFaultSecond;
-  float wFaultThird;
-  float wHeatCoolError;
+  float wIcharge = -1.0f;
+  float wIdischarge = -1.0f;
+  float wSOC = -1.0f;
+  float wSOH = -1.0f;
+  float wResmA = -1.0f;
+  float wFullmA = -1.0f;
+  float wFacmA = -1.0f;
+  float wCycleTime = -1.0f;
+  float wFaultFirst = -1.0f;
+  float wFaultSecond = -1.0f;
+  float wFaultThird = -1.0f;
+  float wHeatCoolError = -1.0f;
 } sCurrentSocHeatCoolFault_t;
 
 typedef struct 
 {
-  float wVcellAFE1[16];
-  float wVcellAFE2[16];
-  bool wBnAFE1[16];
-  bool wBnAFE2[16];
+  float wVcellAFE1[16] = { -1.0f };
+  float wVcellAFE2[16] = { -1.0f };
+  bool wBnAFE1[16] = { 0 };
+  bool wBnAFE2[16] = { 0 };
   sVcelStatistics_t sVcellStatistics;
   sTemperatures_t sTemperatures;
   sCurrentSocHeatCoolFault_t sCurrentSocHeatCoolFault;

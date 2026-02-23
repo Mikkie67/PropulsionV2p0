@@ -1,0 +1,88 @@
+D (15958) signalk_delta_queue.cpp: delta: {
+    "updates": [
+        {
+            "meta": [
+                {
+                    "path": "electrical.batteries.bat01.cells.cell1",
+                    "value": {
+                        "units": "V",
+                        "description": "Battery 01 cell voltage",
+                        "displayName": "Cell 1",
+                        "zones": [
+                            {
+                                "lower": 2.6,
+                                "state": "fault",
+                                "message": "Cell voltage critically low"
+                            },
+                            {
+                                "lower": 2.9,
+                                "state": "warn",
+                                "message": "Cell voltage low"
+                            },
+                            {
+                                "upper": 3.55,
+                                "state": "warn",
+                                "message": "Cell voltage high"
+                            },
+                            {
+                                "upper": 3.65,
+                                "state": "fault",
+                                "message": "Cell voltage critically high"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "source": {
+                "label": "Propulsion5"
+            },
+            "values": []
+        }
+    ]
+}
+D (15992) main.cpp: Current SK delta after set(): {
+    "updates": [
+        {
+            "meta": [
+                {
+                    "path": "electrical.batteries.bat01.cells.cell1",
+                    "value": {
+                        "units": "V",
+                        "description": "Battery 01 cell voltage",
+                        "displayName": "Cell 1",
+                        "zones": [
+                            {
+                                "lower": 2.6,
+                                "state": "fault",
+                                "message": "Cell voltage critically low"
+                            },
+                            {
+                                "lower": 2.9,
+                                "state": "warn",
+                                "message": "Cell voltage low"
+                            },
+                            {
+                                "upper": 3.55,
+                                "state": "warn",
+                                "message": "Cell voltage high"
+                            },
+                            {
+                                "upper": 3.65,
+                                "state": "fault",
+                                "message": "Cell voltage critically high"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "source": {
+                "label": "Propulsion5"
+            },
+            "values": []
+        }
+    ]
+}
